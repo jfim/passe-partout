@@ -16,6 +16,8 @@ from passe_partout.models import (
     CreateTabResponse,
     EvalRequest,
     EvalResponse,
+    FetchRequest,
+    FetchResponse,
     GotoRequest,
     GotoResponse,
     HealthResponse,
@@ -320,5 +322,27 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             except Exception as e:
                 return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
         return Response(status_code=204)
+
+    @app.post("/fetch", response_model=FetchResponse)
+    async def fetch(req: FetchRequest):
+        create_req = CreateTabRequest(url=req.url, cookies=req.cookies, ttl_seconds=req.ttl_seconds)
+        created = await create_tab(create_req)
+        # If create_tab returned a JSONResponse (error like 429 or 502), surface it directly
+        if isinstance(created, JSONResponse):
+            return created
+        tid = created.id
+        registry = app.state.registry
+        pool = app.state.pool
+        rec = registry.get(tid)
+        try:
+            async with rec.lock:
+                html = await rec.tab.get_content()
+            return FetchResponse(status=200, final_url=rec.tab.url or req.url, html=html)
+        finally:
+            registry.remove(tid)
+            try:
+                await pool.close_context(rec.tab)
+            except Exception:
+                pass
 
     return app
