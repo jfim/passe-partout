@@ -1,0 +1,7 @@
+[project]
+name = "passe-partout"
+version = "0.1.0"
+description = "HTTP service that fetches web pages through a real Chromium browser to bypass bot walls and paywalls."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
