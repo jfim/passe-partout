@@ -1,0 +1,7 @@
+<!doctype html><html><head><title>delayed</title></head>
+<body><div id="root"></div>
+<script>setTimeout(() => {
+  const e = document.createElement("p");
+  e.id = "later"; e.textContent = "appeared";
+  document.getElementById("root").appendChild(e);
+}, 500);</script></body></html>
