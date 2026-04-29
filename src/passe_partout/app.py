@@ -32,6 +32,26 @@ from passe_partout.tab_registry import TabRegistry
 def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
     state_pool = browser_pool
 
+    async def sweep_once():
+        registry = app.state.registry
+        pool = app.state.pool
+        for tid in registry.idle_ids():
+            rec = registry.remove(tid)
+            if rec is not None:
+                try:
+                    await pool.close_context(rec.tab)
+                except Exception:
+                    pass
+
+    async def sweeper_loop():
+        import asyncio as _aio
+        while True:
+            try:
+                await sweep_once()
+            except Exception:
+                pass
+            await _aio.sleep(30)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         nonlocal state_pool
@@ -42,9 +62,18 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         app.state.cfg = cfg
         app.state.pool = state_pool
         app.state.registry = TabRegistry()
+        app.state.sweep_once = sweep_once
+
+        import asyncio as _aio
+        sweeper_task = _aio.create_task(sweeper_loop())
         try:
             yield
         finally:
+            sweeper_task.cancel()
+            try:
+                await sweeper_task
+            except _aio.CancelledError:
+                pass
             if owns_pool and state_pool is not None:
                 await state_pool.stop()
 
