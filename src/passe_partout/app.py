@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio as _asyncio
 import base64
 from contextlib import asynccontextmanager
 
@@ -10,11 +11,18 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
 from passe_partout.models import (
+    ClickRequest,
     CreateTabRequest,
     CreateTabResponse,
+    EvalRequest,
+    EvalResponse,
+    GotoRequest,
+    GotoResponse,
     HealthResponse,
     TabState,
     TabSummary,
+    TypeRequest,
+    WaitRequest,
 )
 from passe_partout.tab_registry import TabRegistry
 
@@ -205,5 +213,112 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         async with rec.lock:
             b64 = await rec.tab.send(uc.cdp.page.capture_screenshot(format_="png"))
         return Response(content=base64.b64decode(b64), media_type="image/png")
+
+    @app.post("/tabs/{tab_id}/goto", response_model=GotoResponse)
+    async def goto(tab_id: int, req: GotoRequest):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
+        async with rec.lock:
+            try:
+                await rec.tab.get(req.url)
+            except Exception as e:
+                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+        return GotoResponse(status=200, final_url=rec.tab.url or req.url)
+
+    @app.post("/tabs/{tab_id}/click", status_code=204)
+    async def click(tab_id: int, req: ClickRequest):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
+        async with rec.lock:
+            try:
+                el = await rec.tab.select(req.selector)
+                await el.click()
+            except Exception as e:
+                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+        return Response(status_code=204)
+
+    @app.post("/tabs/{tab_id}/type", status_code=204)
+    async def type_(tab_id: int, req: TypeRequest):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
+        async with rec.lock:
+            try:
+                el = await rec.tab.select(req.selector)
+                await el.send_keys(req.text)
+            except Exception as e:
+                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+        return Response(status_code=204)
+
+    @app.post("/tabs/{tab_id}/eval", response_model=EvalResponse)
+    async def eval_js(tab_id: int, req: EvalRequest):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
+        async with rec.lock:
+            try:
+                result = await rec.tab.evaluate(req.js)
+            except Exception as e:
+                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+        return EvalResponse(result=result)
+
+    @app.post("/tabs/{tab_id}/wait", status_code=204)
+    async def wait(tab_id: int, req: WaitRequest):
+        if not req.selector and not req.network_idle:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "bad_request", "detail": "provide selector and/or network_idle"},
+            )
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
+
+        timeout_s = (req.timeout_ms or 5000) / 1000.0
+
+        async def _wait_selector():
+            await rec.tab.wait_for(selector=req.selector, timeout=timeout_s)
+
+        async def _wait_network_idle():
+            inflight = 0
+            last_zero_at = _asyncio.get_event_loop().time()
+
+            def _on_request(_e):
+                nonlocal inflight
+                inflight += 1
+
+            def _on_done(_e):
+                nonlocal inflight, last_zero_at
+                inflight = max(0, inflight - 1)
+                if inflight == 0:
+                    last_zero_at = _asyncio.get_event_loop().time()
+
+            rec.tab.add_handler(uc.cdp.network.RequestWillBeSent, _on_request)
+            rec.tab.add_handler(uc.cdp.network.LoadingFinished, _on_done)
+            rec.tab.add_handler(uc.cdp.network.LoadingFailed, _on_done)
+            await rec.tab.send(uc.cdp.network.enable())
+
+            deadline = _asyncio.get_event_loop().time() + timeout_s
+            while _asyncio.get_event_loop().time() < deadline:
+                now = _asyncio.get_event_loop().time()
+                if inflight == 0 and (now - last_zero_at) >= 0.5:
+                    return
+                await _asyncio.sleep(0.05)
+            raise _asyncio.TimeoutError()
+
+        async with rec.lock:
+            try:
+                tasks = []
+                if req.selector:
+                    tasks.append(_wait_selector())
+                if req.network_idle:
+                    tasks.append(_wait_network_idle())
+                await _asyncio.wait_for(_asyncio.gather(*tasks), timeout=timeout_s)
+            except (_asyncio.TimeoutError, TimeoutError):
+                return JSONResponse(status_code=408, content={"error": "timeout", "detail": "wait timed out"})
+            except Exception as e:
+                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+        return Response(status_code=204)
 
     return app
