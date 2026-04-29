@@ -41,3 +41,27 @@ async def browser_pool():
         yield pool
     finally:
         await pool.stop()
+
+
+import httpx
+from passe_partout.app import build_app
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def client(browser_pool):
+    cfg = Config()
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def client_with_auth(browser_pool):
+    cfg = Config(auth_token="secret123")
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c, "secret123"
