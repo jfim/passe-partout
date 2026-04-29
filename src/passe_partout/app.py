@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import base64
 from contextlib import asynccontextmanager
 
 import nodriver as uc
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
@@ -152,5 +153,57 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         title = await rec.tab.evaluate("document.title")
         ready = await rec.tab.evaluate("document.readyState")
         return TabState(url=rec.tab.url or "", title=title or "", ready_state=ready or "")
+
+    async def _require_tab(tab_id: int):
+        registry = app.state.registry
+        rec = registry.get(tab_id)
+        if rec is None:
+            return None
+        registry.touch(tab_id)
+        return rec
+
+    @app.get("/tabs/{tab_id}/html")
+    async def get_html(tab_id: int):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        async with rec.lock:
+            html = await rec.tab.get_content()
+        return HTMLResponse(content=html)
+
+    @app.get("/tabs/{tab_id}/cookies")
+    async def get_cookies(tab_id: int):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        async with rec.lock:
+            raw = await rec.tab.send(uc.cdp.network.get_cookies())
+        out = []
+        for c in raw:
+            out.append({
+                "name": c.name, "value": c.value, "domain": c.domain,
+                "path": c.path, "expires": c.expires,
+                "httpOnly": c.http_only, "secure": c.secure,
+                "sameSite": c.same_site.to_json() if c.same_site else None,
+            })
+        return out
+
+    @app.get("/tabs/{tab_id}/screenshot")
+    async def get_screenshot(tab_id: int):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        async with rec.lock:
+            b64 = await rec.tab.send(uc.cdp.page.capture_screenshot(format_="png"))
+        return Response(content=base64.b64decode(b64), media_type="image/png")
 
     return app
