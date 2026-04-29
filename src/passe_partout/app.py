@@ -61,12 +61,18 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             tabs=registry.count(),
         )
 
-    # Stub for /tabs so the auth test (test_auth_required_when_token_set) can
-    # hit a non-/healthz route and verify auth gating. Fully implemented in
-    # Task 7; this is the minimum needed for Task 5's auth test.
-    @app.get("/tabs")
-    async def list_tabs_stub():
-        return []
+    @app.get("/tabs", response_model=list[TabSummary])
+    async def list_tabs():
+        registry = app.state.registry
+        return [
+            TabSummary(
+                id=rec.id,
+                url=getattr(rec.tab, "url", "") or "",
+                created_at=rec.created_at,
+                last_used_at=rec.last_used_at,
+            )
+            for rec in registry.all()
+        ]
 
     def _cookies_to_cdp(cookies, url: str | None = None):
         out = []

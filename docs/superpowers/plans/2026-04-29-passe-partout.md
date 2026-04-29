@@ -699,7 +699,8 @@ class EvalResponse(BaseModel):
 
 class WaitRequest(BaseModel):
     selector: str | None = None
-    ms: int | None = None
+    network_idle: bool | None = None
+    timeout_ms: int | None = None  # default 5000 if unset
 
 
 class HealthResponse(BaseModel):
@@ -1321,7 +1322,7 @@ async def test_wait_for_selector(client, fixture_server):
     r = await client.post("/tabs", json={"url": f"{fixture_server}/delayed.html"})
     tid = r.json()["id"]
     try:
-        r = await client.post(f"/tabs/{tid}/wait", json={"selector": "#later", "ms": 3000})
+        r = await client.post(f"/tabs/{tid}/wait", json={"selector": "#later", "timeout_ms": 3000})
         assert r.status_code == 204
         r = await client.post(f"/tabs/{tid}/eval", json={"js": "document.getElementById('later').textContent"})
         assert r.json()["result"] == "appeared"
@@ -1329,17 +1330,32 @@ async def test_wait_for_selector(client, fixture_server):
         await client.delete(f"/tabs/{tid}")
 
 
-async def test_wait_ms_only(client, fixture_server):
-    r = await client.post("/tabs", json={"url": f"{fixture_server}/static.html"})
+async def test_wait_network_idle(client, fixture_server):
+    r = await client.post("/tabs", json={"url": f"{fixture_server}/delayed.html"})
     tid = r.json()["id"]
     try:
-        r = await client.post(f"/tabs/{tid}/wait", json={"ms": 50})
+        r = await client.post(f"/tabs/{tid}/wait", json={"network_idle": True, "timeout_ms": 3000})
         assert r.status_code == 204
     finally:
         await client.delete(f"/tabs/{tid}")
 
 
-async def test_wait_requires_selector_or_ms(client, fixture_server):
+async def test_wait_both_selector_and_network_idle(client, fixture_server):
+    # AND semantics: both must be satisfied. delayed.html settles network ~immediately
+    # and adds #later after 500ms, so this should pass once #later exists.
+    r = await client.post("/tabs", json={"url": f"{fixture_server}/delayed.html"})
+    tid = r.json()["id"]
+    try:
+        r = await client.post(
+            f"/tabs/{tid}/wait",
+            json={"selector": "#later", "network_idle": True, "timeout_ms": 3000},
+        )
+        assert r.status_code == 204
+    finally:
+        await client.delete(f"/tabs/{tid}")
+
+
+async def test_wait_requires_one_condition(client, fixture_server):
     r = await client.post("/tabs", json={"url": f"{fixture_server}/static.html"})
     tid = r.json()["id"]
     try:
@@ -1416,19 +1432,65 @@ cd /home/jfim/projects/passe-partout && uv run pytest tests/test_tab_ops.py -v
 
     @app.post("/tabs/{tab_id}/wait", status_code=204)
     async def wait(tab_id: int, req: WaitRequest):
-        if req.selector is None and req.ms is None:
-            return JSONResponse(status_code=400, content={"error": "bad_request", "detail": "provide selector or ms"})
+        if not req.selector and not req.network_idle:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "bad_request", "detail": "provide selector and/or network_idle"},
+            )
         rec = await _require_tab(tab_id)
         if rec is None:
             return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
+
+        timeout_s = (req.timeout_ms or 5000) / 1000.0
         async with rec.lock:
             try:
-                if req.selector is not None:
-                    timeout = (req.ms or 5000) / 1000.0
-                    await rec.tab.wait_for(selector=req.selector, timeout=timeout)
-                else:
-                    await _asyncio.sleep((req.ms or 0) / 1000.0)
-            except _asyncio.TimeoutError:
+                async def _wait_selector():
+                    await rec.tab.wait_for(selector=req.selector, timeout=timeout_s)
+
+                async def _wait_network_idle():
+                    # Track in-flight requests via CDP Network domain. Idle = 0
+                    # in-flight requests sustained for 500ms.
+                    inflight = 0
+                    idle_event = _asyncio.Event()
+                    last_zero_at = _asyncio.get_event_loop().time()
+
+                    def _on_request(_e):
+                        nonlocal inflight
+                        inflight += 1
+                        idle_event.clear()
+
+                    def _on_done(_e):
+                        nonlocal inflight, last_zero_at
+                        inflight = max(0, inflight - 1)
+                        if inflight == 0:
+                            last_zero_at = _asyncio.get_event_loop().time()
+
+                    rec.tab.add_handler(uc.cdp.network.RequestWillBeSent, _on_request)
+                    rec.tab.add_handler(uc.cdp.network.LoadingFinished, _on_done)
+                    rec.tab.add_handler(uc.cdp.network.LoadingFailed, _on_done)
+                    await rec.tab.send(uc.cdp.network.enable())
+                    try:
+                        deadline = _asyncio.get_event_loop().time() + timeout_s
+                        while _asyncio.get_event_loop().time() < deadline:
+                            now = _asyncio.get_event_loop().time()
+                            if inflight == 0 and (now - last_zero_at) >= 0.5:
+                                return
+                            await _asyncio.sleep(0.05)
+                        raise _asyncio.TimeoutError()
+                    finally:
+                        # Best-effort handler cleanup; nodriver's add_handler API
+                        # may not expose remove. Disabling Network is sufficient
+                        # for the next wait since handlers are scoped to events.
+                        pass
+
+                tasks = []
+                if req.selector:
+                    tasks.append(_wait_selector())
+                if req.network_idle:
+                    tasks.append(_wait_network_idle())
+                # AND semantics: all conditions must be satisfied.
+                await _asyncio.wait_for(_asyncio.gather(*tasks), timeout=timeout_s)
+            except (_asyncio.TimeoutError, TimeoutError):
                 return JSONResponse(status_code=408, content={"error": "timeout", "detail": "wait timed out"})
             except Exception as e:
                 return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
