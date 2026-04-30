@@ -16,7 +16,7 @@ class Config:
     headless: bool = True
 
     @classmethod
-    def from_env(cls) -> "Config":
+    def from_env(cls) -> Config:
         raw_dirs = os.environ.get("UNPACKED_EXTENSION_DIRS", "")
         ext_dirs = [p for p in raw_dirs.split(":") if p]
         for p in ext_dirs:

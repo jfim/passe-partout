@@ -1,9 +1,8 @@
-import pytest
 import httpx
+import pytest
 
 from passe_partout.app import build_app
 from passe_partout.config import Config
-
 
 SMOKE_URL = "https://files.jean-francois.im/passe-partout-test.html"
 

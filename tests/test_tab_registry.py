@@ -1,8 +1,7 @@
 import asyncio
 import time
 
-import pytest
-from passe_partout.tab_registry import TabRegistry, TabRecord
+from passe_partout.tab_registry import TabRegistry
 
 
 def test_register_assigns_monotonic_ids():

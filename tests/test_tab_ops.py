@@ -1,4 +1,3 @@
-import pytest
 
 
 async def test_get_html(client, fixture_server):

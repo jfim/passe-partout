@@ -1,4 +1,3 @@
-import pytest
 
 
 async def test_create_returns_id(client, fixture_server):

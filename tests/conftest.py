@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest_asyncio
 from aiohttp import web
 
+from passe_partout.app import build_app
 from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
 
@@ -41,10 +43,6 @@ async def browser_pool():
         yield pool
     finally:
         await pool.stop()
-
-
-import httpx
-from passe_partout.app import build_app
 
 
 @pytest_asyncio.fixture(loop_scope="session")

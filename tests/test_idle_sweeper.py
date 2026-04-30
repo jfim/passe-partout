@@ -1,5 +1,4 @@
 import asyncio
-import pytest
 
 
 async def test_idle_tab_is_swept(client, fixture_server):

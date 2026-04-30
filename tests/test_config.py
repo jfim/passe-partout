@@ -1,4 +1,5 @@
 import pytest
+
 from passe_partout.config import Config
 
 
@@ -20,7 +21,8 @@ def test_defaults(monkeypatch):
 def test_overrides(monkeypatch, tmp_path):
     ext_a = tmp_path / "ext_a"
     ext_b = tmp_path / "ext_b"
-    ext_a.mkdir(); ext_b.mkdir()
+    ext_a.mkdir()
+    ext_b.mkdir()
     monkeypatch.setenv("HOST", "0.0.0.0")
     monkeypatch.setenv("PORT", "9001")
     monkeypatch.setenv("MAX_TABS", "3")

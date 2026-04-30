@@ -1,4 +1,3 @@
-import pytest
 
 
 async def test_healthz_ok(client):

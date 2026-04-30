@@ -338,7 +338,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 if inflight == 0 and (now - last_zero_at) >= 0.5:
                     return
                 await _asyncio.sleep(0.05)
-            raise _asyncio.TimeoutError()
+            raise TimeoutError()
 
         async with rec.lock:
             try:
@@ -348,7 +348,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 if req.network_idle:
                     tasks.append(_wait_network_idle())
                 await _asyncio.wait_for(_asyncio.gather(*tasks), timeout=timeout_s)
-            except (_asyncio.TimeoutError, TimeoutError):
+            except TimeoutError:
                 return JSONResponse(status_code=408, content={"error": "timeout", "detail": "wait timed out"})
             except Exception as e:
                 return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
