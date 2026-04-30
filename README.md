@@ -50,6 +50,7 @@ uv run python -m passe_partout
 | `AUTH_TOKEN` | unset | When set, all routes except `/healthz` require `Authorization: Bearer <token>` |
 | `UNPACKED_EXTENSION_DIRS` | unset | `:`-separated paths to unpacked Chromium extensions to load at launch |
 | `HEADLESS` | `1` | Set to `0` to launch Chromium with a visible UI instead of headless (requires a display — typically paired with `USE_XVFB=1` in Docker) |
+| `CHROME_PATH` | unset | Absolute path to a Chrome/Chromium executable. When unset, nodriver auto-detects from default install locations |
 | `USE_XVFB` | `0` | Docker image only — set to `1` to start an Xvfb virtual display and run Chromium non-headless inside it. Implies `HEADLESS=0`. |
 
 ## API

@@ -12,6 +12,7 @@ def test_defaults(monkeypatch):
         "IDLE_CHROME_SHUTDOWN_SECONDS",
         "AUTH_TOKEN",
         "UNPACKED_EXTENSION_DIRS",
+        "CHROME_PATH",
     ):
         monkeypatch.delenv(k, raising=False)
     cfg = Config.from_env()
@@ -22,6 +23,7 @@ def test_defaults(monkeypatch):
     assert cfg.idle_chrome_shutdown_seconds == 300
     assert cfg.auth_token is None
     assert cfg.extension_dirs == []
+    assert cfg.chrome_path is None
 
 
 def test_overrides(monkeypatch, tmp_path):
@@ -36,6 +38,7 @@ def test_overrides(monkeypatch, tmp_path):
     monkeypatch.setenv("IDLE_CHROME_SHUTDOWN_SECONDS", "120")
     monkeypatch.setenv("AUTH_TOKEN", "secret")
     monkeypatch.setenv("UNPACKED_EXTENSION_DIRS", f"{ext_a}:{ext_b}")
+    monkeypatch.setenv("CHROME_PATH", "/opt/chrome/chrome")
     cfg = Config.from_env()
     assert cfg.host == "0.0.0.0"
     assert cfg.port == 9001
@@ -44,6 +47,7 @@ def test_overrides(monkeypatch, tmp_path):
     assert cfg.idle_chrome_shutdown_seconds == 120
     assert cfg.auth_token == "secret"
     assert cfg.extension_dirs == [str(ext_a), str(ext_b)]
+    assert cfg.chrome_path == "/opt/chrome/chrome"
 
 
 def test_extension_dir_must_exist(monkeypatch):

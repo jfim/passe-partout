@@ -32,8 +32,8 @@ jobs:
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
-      - name: Symlink chrome to default location
-        run: sudo ln -sf "${{ steps.chrome.outputs.chrome-path }}" /usr/bin/google-chrome
       - run: uv sync --frozen
       - run: uv run pytest
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
 

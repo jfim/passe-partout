@@ -14,6 +14,7 @@ class Config:
     auth_token: str | None = None
     extension_dirs: list[str] = field(default_factory=list)
     headless: bool = True
+    chrome_path: str | None = None
 
     @classmethod
     def from_env(cls) -> Config:
@@ -31,4 +32,5 @@ class Config:
             auth_token=os.environ.get("AUTH_TOKEN") or None,
             extension_dirs=ext_dirs,
             headless=os.environ.get("HEADLESS", "1").lower() not in ("0", "false", "no"),
+            chrome_path=os.environ.get("CHROME_PATH") or None,
         )
