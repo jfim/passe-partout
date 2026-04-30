@@ -45,7 +45,8 @@ uv run python -m passe_partout
 | `HOST` | `127.0.0.1` (`0.0.0.0` in the Docker image) | Interface to listen on, `127.0.0.1` for loopback only, `0.0.0.0` to listen on all addresses |
 | `PORT` | `8000` | Port on which to listen for the REST API |
 | `MAX_TABS` | `10` | Maximum number of open tabs, after which opening additional tabs will return HTTP 429 |
-| `IDLE_TIMEOUT_SECONDS` | `300` | Timeout after which tabs are closed. Can be overridden on a per-tab basis via `ttl_seconds` on creation |
+| `IDLE_TAB_CLOSE_SECONDS` | `300` | Timeout after which idle tabs are closed. Can be overridden on a per-tab basis via `ttl_seconds` on creation |
+| `IDLE_CHROME_SHUTDOWN_SECONDS` | `300` | Seconds with no open tabs after which Chromium itself is shut down. Set to `0` to keep Chromium always running and start it eagerly. When non-zero, Chromium is started lazily on first request and restarted after shutdown as needed |
 | `AUTH_TOKEN` | unset | When set, all routes except `/healthz` require `Authorization: Bearer <token>` |
 | `UNPACKED_EXTENSION_DIRS` | unset | `:`-separated paths to unpacked Chromium extensions to load at launch |
 | `HEADLESS` | `1` | Set to `0` to launch Chromium with a visible UI instead of headless (requires a display — typically paired with `USE_XVFB=1` in Docker) |

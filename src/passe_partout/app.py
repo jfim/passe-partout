@@ -58,7 +58,8 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         owns_pool = state_pool is None
         if owns_pool:
             state_pool = BrowserPool(cfg)
-            await state_pool.start()
+            if cfg.idle_chrome_shutdown_seconds == 0:
+                await state_pool.start()
         app.state.cfg = cfg
         app.state.pool = state_pool
         app.state.registry = TabRegistry()
@@ -95,9 +96,10 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
     async def healthz():
         pool = app.state.pool
         registry = app.state.registry
+        running = pool is not None and pool._browser is not None
         return HealthResponse(
             ok=True,
-            browser="running" if pool is not None else "down",
+            browser="running" if running else "down",
             tabs=registry.count(),
         )
 
@@ -159,7 +161,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 content={"error": "browser_error", "detail": str(e)},
             )
 
-        ttl = req.ttl_seconds if req.ttl_seconds is not None else cfg_now.idle_timeout_seconds
+        ttl = req.ttl_seconds if req.ttl_seconds is not None else cfg_now.idle_tab_close_seconds
         rec = registry.register(tab=tab, ttl_seconds=ttl)
         return CreateTabResponse(id=rec.id, status=200, final_url=tab.url or req.url)
 

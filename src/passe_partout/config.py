@@ -9,7 +9,8 @@ class Config:
     host: str = "127.0.0.1"
     port: int = 8000
     max_tabs: int = 10
-    idle_timeout_seconds: int = 300
+    idle_tab_close_seconds: int = 300
+    idle_chrome_shutdown_seconds: int = 300
     auth_token: str | None = None
     extension_dirs: list[str] = field(default_factory=list)
     headless: bool = True
@@ -25,7 +26,8 @@ class Config:
             host=os.environ.get("HOST", "127.0.0.1"),
             port=int(os.environ.get("PORT", "8000")),
             max_tabs=int(os.environ.get("MAX_TABS", "10")),
-            idle_timeout_seconds=int(os.environ.get("IDLE_TIMEOUT_SECONDS", "300")),
+            idle_tab_close_seconds=int(os.environ.get("IDLE_TAB_CLOSE_SECONDS", "300")),
+            idle_chrome_shutdown_seconds=int(os.environ.get("IDLE_CHROME_SHUTDOWN_SECONDS", "300")),
             auth_token=os.environ.get("AUTH_TOKEN") or None,
             extension_dirs=ext_dirs,
             headless=os.environ.get("HEADLESS", "1").lower() not in ("0", "false", "no"),
