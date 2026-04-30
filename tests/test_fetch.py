@@ -1,5 +1,3 @@
-
-
 async def test_fetch_returns_rendered_html(client, fixture_server):
     r = await client.post("/fetch", json={"url": f"{fixture_server}/js.html"})
     assert r.status_code == 200, r.text

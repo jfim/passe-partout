@@ -38,6 +38,7 @@ def patched_uc_start(monkeypatch):
         return b
 
     import passe_partout.browser_pool as bp
+
     monkeypatch.setattr(bp.uc, "start", _fake_start)
     return started
 

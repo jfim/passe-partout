@@ -1,5 +1,3 @@
-
-
 async def test_get_html(client, fixture_server):
     r = await client.post("/tabs", json={"url": f"{fixture_server}/static.html"})
     tid = r.json()["id"]
@@ -59,7 +57,9 @@ async def test_eval_and_click(client, fixture_server):
     try:
         r = await client.post(
             f"/tabs/{tid}/eval",
-            json={"js": "document.body.insertAdjacentHTML('beforeend', '<button id=b>x</button>'); document.getElementById('b').addEventListener('click', () => { document.body.dataset.clicked = 'yes'; });"},
+            json={
+                "js": "document.body.insertAdjacentHTML('beforeend', '<button id=b>x</button>'); document.getElementById('b').addEventListener('click', () => { document.body.dataset.clicked = 'yes'; });"
+            },
         )
         assert r.status_code == 200
 
@@ -82,7 +82,9 @@ async def test_type(client, fixture_server):
         )
         r = await client.post(f"/tabs/{tid}/type", json={"selector": "#i", "text": "hello"})
         assert r.status_code == 204
-        r = await client.post(f"/tabs/{tid}/eval", json={"js": "document.getElementById('i').value"})
+        r = await client.post(
+            f"/tabs/{tid}/eval", json={"js": "document.getElementById('i').value"}
+        )
         assert r.json()["result"] == "hello"
     finally:
         await client.delete(f"/tabs/{tid}")
@@ -94,7 +96,9 @@ async def test_wait_for_selector(client, fixture_server):
     try:
         r = await client.post(f"/tabs/{tid}/wait", json={"selector": "#later", "timeout_ms": 3000})
         assert r.status_code == 204, r.text
-        r = await client.post(f"/tabs/{tid}/eval", json={"js": "document.getElementById('later').textContent"})
+        r = await client.post(
+            f"/tabs/{tid}/eval", json={"js": "document.getElementById('later').textContent"}
+        )
         assert r.json()["result"] == "appeared"
     finally:
         await client.delete(f"/tabs/{tid}")

@@ -45,6 +45,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
 
     async def sweeper_loop():
         import asyncio as _aio
+
         while True:
             try:
                 await sweep_once()
@@ -66,6 +67,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         app.state.sweep_once = sweep_once
 
         import asyncio as _aio
+
         sweeper_task = _aio.create_task(sweeper_loop())
         try:
             yield
@@ -227,12 +229,18 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             raw = await rec.tab.send(uc.cdp.network.get_cookies())
         out = []
         for c in raw:
-            out.append({
-                "name": c.name, "value": c.value, "domain": c.domain,
-                "path": c.path, "expires": c.expires,
-                "httpOnly": c.http_only, "secure": c.secure,
-                "sameSite": c.same_site.to_json() if c.same_site else None,
-            })
+            out.append(
+                {
+                    "name": c.name,
+                    "value": c.value,
+                    "domain": c.domain,
+                    "path": c.path,
+                    "expires": c.expires,
+                    "httpOnly": c.http_only,
+                    "secure": c.secure,
+                    "sameSite": c.same_site.to_json() if c.same_site else None,
+                }
+            )
         return out
 
     @app.get("/tabs/{tab_id}/screenshot")
@@ -256,7 +264,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             try:
                 await rec.tab.get(req.url)
             except Exception as e:
-                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+                return JSONResponse(
+                    status_code=502, content={"error": "browser_error", "detail": str(e)}
+                )
         return GotoResponse(status=200, final_url=rec.tab.url or req.url)
 
     @app.post("/tabs/{tab_id}/click", status_code=204)
@@ -269,7 +279,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 el = await rec.tab.select(req.selector)
                 await el.click()
             except Exception as e:
-                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+                return JSONResponse(
+                    status_code=502, content={"error": "browser_error", "detail": str(e)}
+                )
         return Response(status_code=204)
 
     @app.post("/tabs/{tab_id}/type", status_code=204)
@@ -282,7 +294,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 el = await rec.tab.select(req.selector)
                 await el.send_keys(req.text)
             except Exception as e:
-                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+                return JSONResponse(
+                    status_code=502, content={"error": "browser_error", "detail": str(e)}
+                )
         return Response(status_code=204)
 
     @app.post("/tabs/{tab_id}/eval", response_model=EvalResponse)
@@ -294,7 +308,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             try:
                 result = await rec.tab.evaluate(req.js)
             except Exception as e:
-                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+                return JSONResponse(
+                    status_code=502, content={"error": "browser_error", "detail": str(e)}
+                )
         return EvalResponse(result=result)
 
     @app.post("/tabs/{tab_id}/wait", status_code=204)
@@ -349,9 +365,13 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     tasks.append(_wait_network_idle())
                 await _asyncio.wait_for(_asyncio.gather(*tasks), timeout=timeout_s)
             except TimeoutError:
-                return JSONResponse(status_code=408, content={"error": "timeout", "detail": "wait timed out"})
+                return JSONResponse(
+                    status_code=408, content={"error": "timeout", "detail": "wait timed out"}
+                )
             except Exception as e:
-                return JSONResponse(status_code=502, content={"error": "browser_error", "detail": str(e)})
+                return JSONResponse(
+                    status_code=502, content={"error": "browser_error", "detail": str(e)}
+                )
         return Response(status_code=204)
 
     @app.post("/fetch", response_model=FetchResponse)

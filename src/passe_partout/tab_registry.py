@@ -55,9 +55,7 @@ class TabRegistry:
     def idle_ids(self, now: float | None = None) -> list[int]:
         now = time.time() if now is None else now
         return [
-            rec.id
-            for rec in self._records.values()
-            if now - rec.last_used_at > rec.ttl_seconds
+            rec.id for rec in self._records.values() if now - rec.last_used_at > rec.ttl_seconds
         ]
 
     @property

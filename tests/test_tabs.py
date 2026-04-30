@@ -1,5 +1,3 @@
-
-
 async def test_create_returns_id(client, fixture_server):
     r = await client.post("/tabs", json={"url": f"{fixture_server}/static.html"})
     assert r.status_code == 200
@@ -42,6 +40,7 @@ async def test_create_with_cookies(client, fixture_server):
 async def test_max_tabs_cap_returns_429(client, fixture_server):
     # Set cap to 1 by mutating the in-app config
     from passe_partout.config import Config
+
     original = client._transport.app.state.cfg
     client._transport.app.state.cfg = Config(max_tabs=1)
     try:

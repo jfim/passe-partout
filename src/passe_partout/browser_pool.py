@@ -24,9 +24,7 @@ class BrowserPool:
             return
         browser_args: list[str] = ["--no-sandbox"]
         if self.cfg.extension_dirs:
-            browser_args.append(
-                "--load-extension=" + ",".join(self.cfg.extension_dirs)
-            )
+            browser_args.append("--load-extension=" + ",".join(self.cfg.extension_dirs))
         self._browser = await uc.start(browser_args=browser_args, headless=self.cfg.headless)
 
     async def stop(self) -> None:

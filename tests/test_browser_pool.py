@@ -1,5 +1,3 @@
-
-
 async def test_pool_can_create_and_close_context(browser_pool, fixture_server):
     tab = await browser_pool.create_context(f"{fixture_server}/static.html")
     try:

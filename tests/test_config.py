@@ -4,9 +4,15 @@ from passe_partout.config import Config
 
 
 def test_defaults(monkeypatch):
-    for k in ("HOST", "PORT", "MAX_TABS", "IDLE_TAB_CLOSE_SECONDS",
-              "IDLE_CHROME_SHUTDOWN_SECONDS",
-              "AUTH_TOKEN", "UNPACKED_EXTENSION_DIRS"):
+    for k in (
+        "HOST",
+        "PORT",
+        "MAX_TABS",
+        "IDLE_TAB_CLOSE_SECONDS",
+        "IDLE_CHROME_SHUTDOWN_SECONDS",
+        "AUTH_TOKEN",
+        "UNPACKED_EXTENSION_DIRS",
+    ):
         monkeypatch.delenv(k, raising=False)
     cfg = Config.from_env()
     assert cfg.host == "127.0.0.1"

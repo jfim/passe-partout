@@ -40,7 +40,7 @@ def test_touch_updates_last_used_at():
 
 def test_idle_returns_expired_ids():
     reg = TabRegistry()
-    rec1 = reg.register(tab="A", ttl_seconds=0)   # already expired
+    rec1 = reg.register(tab="A", ttl_seconds=0)  # already expired
     rec2 = reg.register(tab="B", ttl_seconds=300)
     expired = reg.idle_ids(now=time.time() + 1)
     assert rec1.id in expired
