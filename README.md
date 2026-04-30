@@ -10,18 +10,22 @@ Some sites (Cloudflare, paywalls, JS-only rendering) reject plain HTTP clients. 
 
 ### Docker (recommended)
 
-    docker pull ghcr.io/jfim/passe-partout:0.1
-    docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.1
+```bash
+docker pull ghcr.io/jfim/passe-partout:0.1
+docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.1
+```
 
 The image listens on `0.0.0.0:8000`, runs Chromium headless under tini as a non-root user, and exposes a `/healthz` healthcheck.
 
 To load unpacked Chromium extensions, mount each as a subdirectory of `/extensions` and point `UNPACKED_EXTENSION_DIRS` at them (colon-separated):
 
-    docker run --rm -p 8000:8000 \
-        -v /path/to/ext1:/extensions/ext1 \
-        -v /path/to/ext2:/extensions/ext2 \
-        -e UNPACKED_EXTENSION_DIRS=/extensions/ext1:/extensions/ext2 \
-        ghcr.io/jfim/passe-partout:0.1
+```bash
+docker run --rm -p 8000:8000 \
+    -v /path/to/ext1:/extensions/ext1 \
+    -v /path/to/ext2:/extensions/ext2 \
+    -e UNPACKED_EXTENSION_DIRS=/extensions/ext1:/extensions/ext2 \
+    ghcr.io/jfim/passe-partout:0.1
+```
 
 To run Chromium under a virtual display instead of headless (better for some extensions and bot-detection bypasses), set `USE_XVFB=1`:
 
@@ -29,18 +33,20 @@ To run Chromium under a virtual display instead of headless (better for some ext
 
 ### From source
 
-    uv sync
-    uv run python -m passe_partout
+```bash
+uv sync
+uv run python -m passe_partout
+```
 
 ## Configuration (env vars)
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `HOST` | `127.0.0.1` (`0.0.0.0` in the Docker image) | |
-| `PORT` | `8000` | |
-| `MAX_TABS` | `10` | |
-| `IDLE_TIMEOUT_SECONDS` | `300` | per-tab override via `ttl_seconds` on creation |
-| `AUTH_TOKEN` | unset | when set, all routes except `/healthz` require `Authorization: Bearer <token>` |
+| `HOST` | `127.0.0.1` (`0.0.0.0` in the Docker image) | Interface to listen on, `127.0.0.1` for loopback only, `0.0.0.0` to listen on all addresses |
+| `PORT` | `8000` | Port on which to listen for the REST API |
+| `MAX_TABS` | `10` | Maximum number of open tabs, after which opening additional tabs will return HTTP 429 |
+| `IDLE_TIMEOUT_SECONDS` | `300` | Timeout after which tabs are closed. Can be overridden on a per-tab basis via `ttl_seconds` on creation |
+| `AUTH_TOKEN` | unset | When set, all routes except `/healthz` require `Authorization: Bearer <token>` |
 | `UNPACKED_EXTENSION_DIRS` | unset | `:`-separated paths to unpacked Chromium extensions to load at launch |
 | `USE_XVFB` | `0` | Docker image only — set to `1` to run Chromium under `xvfb-run` instead of headless |
 
@@ -52,8 +58,14 @@ All bodies are JSON. Responses include error bodies of the form `{"error": "<cod
 
 `POST /fetch` — open a tab, wait for the page to load, return the HTML, then close the tab.
 
-    curl -X POST localhost:8000/fetch -H 'content-type: application/json' \
-         -d '{"url":"https://example.com"}'
+```bash
+curl -X POST localhost:8000/fetch -H 'content-type: application/json' \
+     -d '{"url":"https://example.com"}'
+```
+
+```
+{"status":200,"final_url":"https://example.com/","html":"<!DOCTYPE html><html lang=\"en\"><head>...</body></html>"}
+```
 
 Body: `url` (required), optional `cookies` (array of `{name, value, domain?, path?, expires?, httpOnly?, secure?, sameSite?}`), optional `ttl_seconds`.
 Response: `{status, final_url, html}`.
@@ -83,14 +95,16 @@ For multi-step interaction, create a tab, drive it, then delete it.
 
 ### Example
 
-    # create a tab
-    TAB=$(curl -s -X POST localhost:8000/tabs -H 'content-type: application/json' \
-                -d '{"url":"https://example.com"}' | jq .id)
+```bash
+# create a tab
+TAB=$(curl -s -X POST localhost:8000/tabs -H 'content-type: application/json' \
+           -d '{"url":"https://example.com"}' | jq .id)
 
-    # wait for network idle, then grab HTML
-    curl -X POST localhost:8000/tabs/$TAB/wait -H 'content-type: application/json' \
-         -d '{"network_idle":true,"timeout_ms":5000}'
-    curl localhost:8000/tabs/$TAB/html
+# wait for network idle, then grab HTML
+curl -X POST localhost:8000/tabs/$TAB/wait -H 'content-type: application/json' \
+     -d '{"network_idle":true,"timeout_ms":5000}'
+curl localhost:8000/tabs/$TAB/html
 
-    # clean up
-    curl -X DELETE localhost:8000/tabs/$TAB
+# clean up
+curl -X DELETE localhost:8000/tabs/$TAB
+```
