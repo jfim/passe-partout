@@ -28,6 +28,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      - uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
       - run: uv sync --frozen
       - run: uv run pytest
 
