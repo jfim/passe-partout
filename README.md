@@ -111,3 +111,7 @@ curl localhost:8000/tabs/$TAB/html
 # clean up
 curl -X DELETE localhost:8000/tabs/$TAB
 ```
+
+## License
+
+GNU AGPL 3.0
