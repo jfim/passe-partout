@@ -20,6 +20,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         chromium \
         tini \
         xvfb \
+        xauth \
         ca-certificates \
         curl \
         fonts-liberation \

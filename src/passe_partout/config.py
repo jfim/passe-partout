@@ -12,6 +12,7 @@ class Config:
     idle_timeout_seconds: int = 300
     auth_token: str | None = None
     extension_dirs: list[str] = field(default_factory=list)
+    headless: bool = True
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -27,4 +28,5 @@ class Config:
             idle_timeout_seconds=int(os.environ.get("IDLE_TIMEOUT_SECONDS", "300")),
             auth_token=os.environ.get("AUTH_TOKEN") or None,
             extension_dirs=ext_dirs,
+            headless=os.environ.get("HEADLESS", "1").lower() not in ("0", "false", "no"),
         )

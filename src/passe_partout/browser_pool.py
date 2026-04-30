@@ -16,7 +16,7 @@ class BrowserPool:
             browser_args.append(
                 "--load-extension=" + ",".join(self.cfg.extension_dirs)
             )
-        self._browser = await uc.start(browser_args=browser_args, headless=True)
+        self._browser = await uc.start(browser_args=browser_args, headless=self.cfg.headless)
 
     async def stop(self) -> None:
         if self._browser is not None:
