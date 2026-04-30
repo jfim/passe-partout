@@ -8,6 +8,27 @@ Some sites (Cloudflare, paywalls, JS-only rendering) reject plain HTTP clients. 
 
 ## Run
 
+### Docker (recommended)
+
+    docker pull ghcr.io/jfim/passe-partout:0.1
+    docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.1
+
+The image listens on `0.0.0.0:8000`, runs Chromium headless under tini as a non-root user, and exposes a `/healthz` healthcheck.
+
+To load unpacked Chromium extensions, mount each as a subdirectory of `/extensions` and point `UNPACKED_EXTENSION_DIRS` at them (colon-separated):
+
+    docker run --rm -p 8000:8000 \
+        -v /path/to/ext1:/extensions/ext1 \
+        -v /path/to/ext2:/extensions/ext2 \
+        -e UNPACKED_EXTENSION_DIRS=/extensions/ext1:/extensions/ext2 \
+        ghcr.io/jfim/passe-partout:0.1
+
+To run Chromium under a virtual display instead of headless (better for some extensions and bot-detection bypasses), set `USE_XVFB=1`:
+
+    docker run --rm -p 8000:8000 -e USE_XVFB=1 ghcr.io/jfim/passe-partout:0.1
+
+### From source
+
     uv sync
     uv run python -m passe_partout
 
@@ -15,25 +36,61 @@ Some sites (Cloudflare, paywalls, JS-only rendering) reject plain HTTP clients. 
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `HOST` | `127.0.0.1` | |
+| `HOST` | `127.0.0.1` (`0.0.0.0` in the Docker image) | |
 | `PORT` | `8000` | |
 | `MAX_TABS` | `10` | |
 | `IDLE_TIMEOUT_SECONDS` | `300` | per-tab override via `ttl_seconds` on creation |
 | `AUTH_TOKEN` | unset | when set, all routes except `/healthz` require `Authorization: Bearer <token>` |
 | `UNPACKED_EXTENSION_DIRS` | unset | `:`-separated paths to unpacked Chromium extensions to load at launch |
+| `USE_XVFB` | `0` | Docker image only — set to `1` to run Chromium under `xvfb-run` instead of headless |
 
 ## API
 
-See `docs/superpowers/specs/2026-04-29-passe-partout-design.md` for the full surface.
+All bodies are JSON. Responses include error bodies of the form `{"error": "<code>", "detail": "<message>"}` on failure.
 
-Quickstart:
+### One-shot
 
-    # one-shot
+`POST /fetch` — open a tab, wait for the page to load, return the HTML, then close the tab.
+
     curl -X POST localhost:8000/fetch -H 'content-type: application/json' \
          -d '{"url":"https://example.com"}'
 
-    # stateful tab
-    curl -X POST localhost:8000/tabs -H 'content-type: application/json' \
-         -d '{"url":"https://example.com"}'   # → {"id": 1, ...}
-    curl localhost:8000/tabs/1/html
-    curl -X DELETE localhost:8000/tabs/1
+Body: `url` (required), optional `cookies` (array of `{name, value, domain?, path?, expires?, httpOnly?, secure?, sameSite?}`), optional `ttl_seconds`.
+Response: `{status, final_url, html}`.
+
+### Stateful tabs
+
+For multi-step interaction, create a tab, drive it, then delete it.
+
+| Method & path | Purpose |
+| --- | --- |
+| `POST /tabs` | Create a tab. Body: `{url, cookies?, ttl_seconds?}` → `{id, status, final_url}`. Returns 429 if `MAX_TABS` reached. |
+| `GET /tabs` | List active tabs. |
+| `GET /tabs/{id}` | Tab state: `{url, title, ready_state}`. |
+| `DELETE /tabs/{id}` | Close the tab. |
+| `GET /tabs/{id}/html` | Current document HTML. |
+| `GET /tabs/{id}/cookies` | Cookies visible to the tab. |
+| `GET /tabs/{id}/screenshot` | PNG of the viewport. |
+| `POST /tabs/{id}/goto` | Navigate. Body: `{url}` → `{status, final_url}`. |
+| `POST /tabs/{id}/click` | Click a selector. Body: `{selector}`. |
+| `POST /tabs/{id}/type` | Type into a selector. Body: `{selector, text}`. |
+| `POST /tabs/{id}/eval` | Evaluate JS in the page. Body: `{js}` → `{result}`. |
+| `POST /tabs/{id}/wait` | Wait for a selector and/or network idle. Body: `{selector?, network_idle?, timeout_ms?}`. |
+
+### Health
+
+`GET /healthz` → `{ok, browser, tabs}`. Used by the Docker `HEALTHCHECK`; not subject to `AUTH_TOKEN`.
+
+### Example
+
+    # create a tab
+    TAB=$(curl -s -X POST localhost:8000/tabs -H 'content-type: application/json' \
+                -d '{"url":"https://example.com"}' | jq .id)
+
+    # wait for network idle, then grab HTML
+    curl -X POST localhost:8000/tabs/$TAB/wait -H 'content-type: application/json' \
+         -d '{"network_idle":true,"timeout_ms":5000}'
+    curl localhost:8000/tabs/$TAB/html
+
+    # clean up
+    curl -X DELETE localhost:8000/tabs/$TAB
