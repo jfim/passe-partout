@@ -48,7 +48,8 @@ uv run python -m passe_partout
 | `IDLE_TIMEOUT_SECONDS` | `300` | Timeout after which tabs are closed. Can be overridden on a per-tab basis via `ttl_seconds` on creation |
 | `AUTH_TOKEN` | unset | When set, all routes except `/healthz` require `Authorization: Bearer <token>` |
 | `UNPACKED_EXTENSION_DIRS` | unset | `:`-separated paths to unpacked Chromium extensions to load at launch |
-| `USE_XVFB` | `0` | Docker image only — set to `1` to run Chromium under `xvfb-run` instead of headless |
+| `HEADLESS` | `1` | Set to `0` to launch Chromium with a visible UI instead of headless (requires a display — typically paired with `USE_XVFB=1` in Docker) |
+| `USE_XVFB` | `0` | Docker image only — set to `1` to start an Xvfb virtual display and run Chromium non-headless inside it. Implies `HEADLESS=0`. |
 
 ## API
 
