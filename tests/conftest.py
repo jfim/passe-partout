@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import httpx
@@ -36,7 +37,7 @@ async def fixture_server():
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def browser_pool():
-    cfg = Config()
+    cfg = Config(chrome_path=os.environ.get("CHROME_PATH") or None)
     pool = BrowserPool(cfg)
     await pool.start()
     try:
