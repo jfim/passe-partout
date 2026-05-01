@@ -187,6 +187,40 @@ async def test_list_downloads_404_for_unknown_tab(client):
 
 
 @pytest.mark.asyncio
+async def test_download_status_endpoint(fixture_server, browser_pool, tmp_path):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/binary.zip"})
+            tid = r.json()["id"]
+            did = r.json()["download"]["id"]
+            for _ in range(40):
+                s = await c.get(f"/tabs/{tid}/downloads/{did}/status")
+                if s.json()["state"] == "completed":
+                    break
+                await asyncio.sleep(0.05)
+            assert s.status_code == 200
+            assert s.json()["id"] == did
+            await c.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
+async def test_download_status_404(client):
+    r = await client.post("/tabs", json={"url": "about:blank"})
+    tid = r.json()["id"]
+    bad = await client.get(f"/tabs/{tid}/downloads/nope/status")
+    assert bad.status_code == 404
+    await client.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
 async def test_iframe_document_does_not_become_download(fixture_server, browser_pool, tmp_path):
     """A page whose iframe loads a non-HTML resource must not produce a download."""
     from passe_partout.app import build_app
