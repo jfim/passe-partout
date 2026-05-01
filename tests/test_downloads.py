@@ -132,3 +132,41 @@ async def test_html_navigation_does_not_become_download(fixture_server, browser_
             assert r.status_code == 200
             assert r.json()["download"] is None
             await c.delete(f"/tabs/{r.json()['id']}")
+
+
+@pytest.mark.asyncio
+async def test_subresources_do_not_become_downloads(fixture_server, browser_pool, tmp_path):
+    """An HTML page with an embedded <img> must not produce a download record."""
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/normal_page.html"})
+            tab_id = r.json()["id"]
+            await asyncio.sleep(0.5)  # let the embedded image finish loading
+            rec = app.state.registry.get(tab_id)
+            assert rec.downloads == {}
+            await c.delete(f"/tabs/{tab_id}")
+
+
+@pytest.mark.asyncio
+async def test_iframe_document_does_not_become_download(fixture_server, browser_pool, tmp_path):
+    """A page whose iframe loads a non-HTML resource must not produce a download."""
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/iframe_with_image.html"})
+            tab_id = r.json()["id"]
+            await asyncio.sleep(0.5)
+            rec = app.state.registry.get(tab_id)
+            assert rec.downloads == {}
+            await c.delete(f"/tabs/{tab_id}")
