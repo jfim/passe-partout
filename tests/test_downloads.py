@@ -388,3 +388,30 @@ async def test_delete_in_progress_cancels_then_unlinks(fixture_server, browser_p
             file_path = tmp_path / "passe-partout" / f"tab-{tid}" / did
             assert not file_path.exists()
             await c.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
+async def test_click_triggers_download(fixture_server, browser_pool, tmp_path):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/click_to_download.html"})
+            tid = r.json()["id"]
+            assert r.json()["download"] is None
+            cl = await c.post(f"/tabs/{tid}/click", json={"selector": "#dl"})
+            assert cl.status_code == 204
+            lst = []
+            for _ in range(40):
+                lst = (await c.get(f"/tabs/{tid}/downloads")).json()
+                if lst and lst[0]["state"] == "completed":
+                    break
+                await asyncio.sleep(0.05)
+            assert lst and lst[0]["filename"] == "binary.zip"
+            await c.delete(f"/tabs/{tid}")
