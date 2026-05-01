@@ -190,3 +190,7 @@ class DownloadCoordinator:
 
     async def detach_tab(self, tab_id: int) -> None:
         self.cleanup_tab_dir(tab_id)
+        stale_guids = [guid for guid, tid in self._tab_lookup.items() if tid == tab_id]
+        for guid in stale_guids:
+            del self._tab_lookup[guid]
+        self._pending_content_type.pop(tab_id, None)

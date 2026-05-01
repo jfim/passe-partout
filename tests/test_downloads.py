@@ -458,6 +458,29 @@ async def test_download_response_final_url_is_origin(fixture_server, browser_poo
 
 
 @pytest.mark.asyncio
+async def test_detach_tab_clears_lookup(fixture_server, browser_pool, tmp_path):
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/binary.zip"})
+            tid = r.json()["id"]
+            did = r.json()["download"]["id"]
+            # Wait for the will_begin to record it.
+            for _ in range(20):
+                if did in app.state.coord._tab_lookup:
+                    break
+                await asyncio.sleep(0.025)
+            assert did in app.state.coord._tab_lookup
+            await c.delete(f"/tabs/{tid}")
+            assert did not in app.state.coord._tab_lookup
+
+
+@pytest.mark.asyncio
 async def test_idle_sweep_does_not_evict_during_active_download(
     fixture_server, browser_pool, tmp_path
 ):
