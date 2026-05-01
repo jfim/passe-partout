@@ -266,6 +266,38 @@ async def test_download_bytes_in_progress_returns_425(fixture_server, browser_po
 
 
 @pytest.mark.asyncio
+async def test_cancel_in_progress_download(fixture_server, browser_pool, tmp_path):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/slow.bin"})
+            tid = r.json()["id"]
+            did = r.json()["download"]["id"]
+            cx = await c.post(f"/tabs/{tid}/downloads/{did}/cancel")
+            assert cx.status_code == 204
+            for _ in range(20):
+                s = await c.get(f"/tabs/{tid}/downloads/{did}/status")
+                if s.json()["state"] == "canceled":
+                    break
+                await asyncio.sleep(0.05)
+            assert s.json()["state"] == "canceled"
+            # Bytes endpoint now returns 410.
+            b = await c.get(f"/tabs/{tid}/downloads/{did}")
+            assert b.status_code == 410
+            # Cancel on terminal state returns 409.
+            cx2 = await c.post(f"/tabs/{tid}/downloads/{did}/cancel")
+            assert cx2.status_code == 409
+            await c.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
 async def test_iframe_document_does_not_become_download(fixture_server, browser_pool, tmp_path):
     """A page whose iframe loads a non-HTML resource must not produce a download."""
     from passe_partout.app import build_app

@@ -363,6 +363,30 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             media_type=dl.content_type or "application/octet-stream",
         )
 
+    @app.post("/tabs/{tab_id}/downloads/{did}/cancel", status_code=204)
+    async def cancel_download(tab_id: int, did: str):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        dl = rec.downloads.get(did)
+        if dl is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "download_not_found", "detail": f"no download {did}"},
+            )
+        if dl.state != "in_progress":
+            return JSONResponse(
+                status_code=409,
+                content={"error": "download_terminal", "detail": f"state is {dl.state}"},
+            )
+        coord = app.state.coord
+        async with rec.lock:
+            await coord.cancel(rec.tab, did)
+        return Response(status_code=204)
+
     @app.post("/tabs/{tab_id}/goto", response_model=GotoResponse)
     async def goto(tab_id: int, req: GotoRequest):
         rec = await _require_tab(tab_id)

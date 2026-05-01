@@ -182,5 +182,11 @@ class DownloadCoordinator:
             )
         )
 
+    async def cancel(self, tab: uc.Tab, guid: str) -> None:
+        browser_context_id = tab.target.browser_context_id if tab.target else None
+        await tab.send(
+            uc.cdp.browser.cancel_download(guid=guid, browser_context_id=browser_context_id)
+        )
+
     async def detach_tab(self, tab_id: int) -> None:
         self.cleanup_tab_dir(tab_id)
