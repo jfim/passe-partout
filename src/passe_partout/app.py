@@ -397,19 +397,19 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 status_code=404,
                 content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
             )
-        dl = rec.downloads.pop(did, None)
-        if dl is None:
-            return JSONResponse(
-                status_code=404,
-                content={"error": "download_not_found", "detail": f"no download {did}"},
-            )
         coord = app.state.coord
-        if dl.state == "in_progress":
-            try:
-                async with rec.lock:
+        async with rec.lock:
+            dl = rec.downloads.pop(did, None)
+            if dl is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "download_not_found", "detail": f"no download {did}"},
+                )
+            if dl.state == "in_progress":
+                try:
                     await coord.cancel(rec.tab, did)
-            except Exception:
-                pass
+                except Exception:
+                    pass
         try:
             if dl.path.exists():
                 dl.path.unlink()
