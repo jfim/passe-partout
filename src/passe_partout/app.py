@@ -387,6 +387,34 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             await coord.cancel(rec.tab, did)
         return Response(status_code=204)
 
+    @app.delete("/tabs/{tab_id}/downloads/{did}", status_code=204)
+    async def delete_download(tab_id: int, did: str):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        dl = rec.downloads.pop(did, None)
+        if dl is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "download_not_found", "detail": f"no download {did}"},
+            )
+        coord = app.state.coord
+        if dl.state == "in_progress":
+            try:
+                async with rec.lock:
+                    await coord.cancel(rec.tab, did)
+            except Exception:
+                pass
+        try:
+            if dl.path.exists():
+                dl.path.unlink()
+        except OSError:
+            pass
+        return Response(status_code=204)
+
     @app.post("/tabs/{tab_id}/goto", response_model=GotoResponse)
     async def goto(tab_id: int, req: GotoRequest):
         rec = await _require_tab(tab_id)

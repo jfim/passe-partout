@@ -314,3 +314,55 @@ async def test_iframe_document_does_not_become_download(fixture_server, browser_
             rec = app.state.registry.get(tab_id)
             assert rec.downloads == {}
             await c.delete(f"/tabs/{tab_id}")
+
+
+@pytest.mark.asyncio
+async def test_delete_completed_download_unlinks_file(fixture_server, browser_pool, tmp_path):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/binary.zip"})
+            tid = r.json()["id"]
+            did = r.json()["download"]["id"]
+            for _ in range(40):
+                s = await c.get(f"/tabs/{tid}/downloads/{did}/status")
+                if s.json()["state"] == "completed":
+                    break
+                await asyncio.sleep(0.05)
+            file_path = tmp_path / "passe-partout" / f"tab-{tid}" / did
+            assert file_path.exists()
+            d = await c.delete(f"/tabs/{tid}/downloads/{did}")
+            assert d.status_code == 204
+            assert not file_path.exists()
+            s2 = await c.get(f"/tabs/{tid}/downloads/{did}/status")
+            assert s2.status_code == 404
+            await c.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
+async def test_delete_in_progress_cancels_then_unlinks(fixture_server, browser_pool, tmp_path):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/slow.bin"})
+            tid = r.json()["id"]
+            did = r.json()["download"]["id"]
+            d = await c.delete(f"/tabs/{tid}/downloads/{did}")
+            assert d.status_code == 204
+            file_path = tmp_path / "passe-partout" / f"tab-{tid}" / did
+            assert not file_path.exists()
+            await c.delete(f"/tabs/{tid}")
