@@ -420,6 +420,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         rec = await _require_tab(tab_id)
         if rec is None:
             return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
+        pre_existing = set(rec.downloads.keys())
         async with rec.lock:
             try:
                 if rec.nav is not None:
@@ -433,7 +434,26 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 )
         status = rec.nav.status if rec.nav and rec.nav.status is not None else 200
         ctype = rec.nav.mime_type if rec.nav else None
-        return GotoResponse(status=status, final_url=rec.tab.url or req.url, content_type=ctype)
+
+        new_dl = None
+        for _ in range(20):
+            diff = set(rec.downloads.keys()) - pre_existing
+            if diff:
+                new_dl = rec.downloads[next(iter(diff))]
+                break
+            await _asyncio.sleep(0.025)
+
+        download_info = (
+            DownloadInfo(id=new_dl.id, filename=new_dl.filename, size_bytes=new_dl.size_bytes)
+            if new_dl is not None
+            else None
+        )
+        return GotoResponse(
+            status=status,
+            final_url=rec.tab.url or req.url,
+            content_type=ctype,
+            download=download_info,
+        )
 
     @app.post("/tabs/{tab_id}/click", status_code=204)
     async def click(tab_id: int, req: ClickRequest):
