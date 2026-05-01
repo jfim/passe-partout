@@ -44,8 +44,8 @@ class DownloadRecord:
     state: Literal["in_progress", "completed", "canceled"]
     bytes_received: int
     size_bytes: int               # -1 if unknown
-    started_at: float
-    completed_at: float | None
+    started_at: float           # Unix epoch seconds
+    completed_at: float | None  # Unix epoch seconds, set when state becomes terminal
     path: Path                    # server-internal, not serialized
 ```
 
@@ -78,11 +78,12 @@ A new env var **`DOWNLOAD_DIR`** (default `/tmp`) sets the root. Actual layout:
   "download": {
     "id": "a1b2c3...",
     "filename": "binary.zip",
-    "size_bytes": 10485760,
-    "url": "/tabs/42/downloads/a1b2c3..."
+    "size_bytes": 10485760
   }
 }
 ```
+
+The bytes endpoint URL is not included — clients construct it from the tab id and download id.
 
 `POST /tabs` and `POST /tabs/{id}/goto` return **as soon as `downloadWillBegin` fires** — they do not wait for completion. `size_bytes` may be `-1` at that moment.
 
