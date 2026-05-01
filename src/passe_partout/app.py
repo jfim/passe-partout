@@ -16,6 +16,7 @@ from passe_partout.models import (
     CreateTabRequest,
     CreateTabResponse,
     DownloadInfo,
+    DownloadStatus,
     EvalRequest,
     EvalResponse,
     FetchRequest,
@@ -123,6 +124,18 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             )
             for rec in registry.all()
         ]
+
+    def _download_to_status(dl) -> DownloadStatus:
+        return DownloadStatus(
+            id=dl.id,
+            url=dl.url,
+            filename=dl.filename,
+            state=dl.state,
+            bytes_received=dl.bytes_received,
+            size_bytes=dl.size_bytes,
+            started_at=dl.started_at,
+            completed_at=dl.completed_at,
+        )
 
     def _cookies_to_cdp(cookies, url: str | None = None):
         out = []
@@ -292,6 +305,16 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         async with rec.lock:
             b64 = await rec.tab.send(uc.cdp.page.capture_screenshot(format_="png"))
         return Response(content=base64.b64decode(b64), media_type="image/png")
+
+    @app.get("/tabs/{tab_id}/downloads", response_model=list[DownloadStatus])
+    async def list_downloads(tab_id: int):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        return [_download_to_status(dl) for dl in rec.downloads.values()]
 
     @app.post("/tabs/{tab_id}/goto", response_model=GotoResponse)
     async def goto(tab_id: int, req: GotoRequest):

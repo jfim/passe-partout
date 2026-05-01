@@ -154,6 +154,39 @@ async def test_subresources_do_not_become_downloads(fixture_server, browser_pool
 
 
 @pytest.mark.asyncio
+async def test_list_downloads_returns_records(fixture_server, browser_pool, tmp_path):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/binary.zip"})
+            tid = r.json()["id"]
+            for _ in range(40):
+                lst = await c.get(f"/tabs/{tid}/downloads")
+                if lst.json() and lst.json()[0]["state"] == "completed":
+                    break
+                await asyncio.sleep(0.05)
+            data = lst.json()
+            assert len(data) == 1
+            assert data[0]["filename"] == "binary.zip"
+            assert data[0]["state"] == "completed"
+            assert data[0]["bytes_received"] > 0
+            await c.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
+async def test_list_downloads_404_for_unknown_tab(client):
+    r = await client.get("/tabs/99999/downloads")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_iframe_document_does_not_become_download(fixture_server, browser_pool, tmp_path):
     """A page whose iframe loads a non-HTML resource must not produce a download."""
     from passe_partout.app import build_app
