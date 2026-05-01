@@ -6,8 +6,10 @@ Let clients fetch binary resources through passe-partout the same way they fetch
 
 ## Scope
 
+The core rule: **if a navigation's main-frame response is not an HTML document, it becomes a download.** "HTML document" means `Content-Type` starting with `text/html` or `application/xhtml+xml`. Everything else — images, PDFs, JSON, plain text, zip files, octet-streams, missing Content-Type — flows through the download endpoints. The origin's `Content-Disposition` is ignored for the render-vs-download decision; only the response's content type matters. This is stricter than Chromium's default behavior and is the point of the feature: clients want the bytes Chromium fetched, not Chromium's rendered viewer for those bytes.
+
 In:
-- A direct binary URL passed to `POST /tabs` (or `POST /tabs/{id}/goto`) where Chromium would normally hand the response to its download manager instead of rendering a document.
+- A direct non-HTML URL passed to `POST /tabs` (or `POST /tabs/{id}/goto`). Even MIME types Chromium would normally render inline (`image/png`, `application/pdf`, `text/plain`, …) become downloads.
 - A page-triggered download produced by a `click` (or any in-page action) — the download record appears on the tab and is retrievable through the same endpoints.
 - Multiple downloads coexisting on a single tab.
 
@@ -15,15 +17,33 @@ Out:
 - Streaming bytes to the client *as they arrive* from the origin. Bytes are served only after the download reaches a terminal state.
 - Per-download retention beyond the lifetime of the owning tab.
 - A `/fetch`-style one-shot binary download endpoint. Clients use the tab flow.
+- Forcing downloads of *subresources* (images embedded in a page, etc.). Only the main-frame document response is intercepted.
 
 ## CDP plumbing
 
-`nodriver` exposes the relevant CDP surface directly. The handful we use:
+`nodriver` exposes the relevant CDP surface directly. Two domains are involved: `Fetch` for forcing non-HTML responses into the download path, and `Browser` for the download lifecycle itself.
+
+### Forcing non-HTML into the download path
+
+We enable `Fetch` interception scoped to main-frame document requests:
+
+```
+Fetch.enable(patterns=[{"resourceType": "Document", "requestStage": "Response"}])
+```
+
+On each `Fetch.requestPaused` event (response stage), we read the `Content-Type` response header:
+
+- If it starts with `text/html` or `application/xhtml+xml` → `Fetch.continueResponse()` unmodified. Page renders normally.
+- Otherwise → `Fetch.continueResponse(responseHeaders=<original + Content-Disposition: attachment>)`. Chromium then routes the response through its download manager, firing `Browser.downloadWillBegin`. From there the flow is identical to a download the origin marked `attachment` itself.
+
+Subresources (images, scripts, stylesheets, XHR fetched by page JS) are not intercepted — the `resourceType: "Document"` filter ensures we only touch main-frame navigations. Click-triggered downloads (which Chromium already routes through the download manager) need no Fetch involvement; they hit `Browser.downloadWillBegin` directly.
+
+### Download lifecycle
 
 | CDP | Purpose |
 |---|---|
 | `Browser.setDownloadBehavior(behavior="allowAndName", browserContextId, downloadPath, eventsEnabled=True)` | Configured once per tab context at tab creation. `allowAndName` writes each download to disk as its CDP `guid` (no extension), avoiding filename collisions; the suggested filename is reported separately in the event. |
-| `Browser.downloadWillBegin` event | Fires when Chromium decides a navigation is a download. Provides `guid`, `url`, `suggestedFilename`. We create a `DownloadRecord` here. |
+| `Browser.downloadWillBegin` event | Fires when Chromium decides a navigation is a download (either origin-marked or after our header rewrite). Provides `guid`, `url`, `suggestedFilename`. We create a `DownloadRecord` here. |
 | `Browser.downloadProgress` event | Fires repeatedly with `guid`, `totalBytes`, `receivedBytes`, `state ∈ {inProgress, completed, canceled}`. We mutate the record fields and bump the owning tab's `last_used_at`. |
 | `Browser.cancelDownload(guid, browserContextId)` | Backs the cancel endpoint. |
 
@@ -149,17 +169,23 @@ No changes to existing env vars. `IDLE_TAB_CLOSE_SECONDS` continues to govern ta
 
 ## Testing
 
-- Add a fixture endpoint to `tests/fixtures/` (served by the existing `fixture_server`) that returns a small binary with `Content-Disposition: attachment`. Use that for the happy-path integration tests rather than the public internet.
+- Add fixture endpoints to `tests/fixtures/` (served by the existing `fixture_server`):
+  - A small binary served with `Content-Type: application/zip` and `Content-Disposition: attachment` (origin-marked download).
+  - A small image served with `Content-Type: image/png` and **no** `Content-Disposition` (the case Chromium would render inline; verifies the Fetch-rewrite path).
+  - A small JSON payload served with `Content-Type: application/json` and `Content-Disposition: inline` (verifies that origin-marked `inline` does not prevent the download path for non-HTML).
+  - A normal HTML page (verifies HTML still flows through the page-rendering path and does not become a download).
 - Tests:
-  - `POST /tabs` to a binary URL returns a response with `download` populated; `final_url` matches.
+  - `POST /tabs` to each non-HTML fixture returns a response with `download` populated; `final_url` matches; bytes match the fixture file.
+  - `POST /tabs` to the HTML fixture returns no `download` field and `GET /tabs/{id}/html` works as before.
   - `GET /tabs/{id}/downloads/{did}/status` reports `completed` after the download finishes.
-  - `GET /tabs/{id}/downloads/{did}` returns the bytes with correct `Content-Type` and `Content-Disposition`.
+  - `GET /tabs/{id}/downloads/{did}` returns the bytes with the origin's `Content-Type` and a forced `Content-Disposition: attachment`.
   - `425` while in-progress (use a slow fixture or artificial delay to observe the intermediate state).
   - `POST /cancel` mid-flight transitions to `canceled`; subsequent bytes GET → `410`.
   - `DELETE /downloads/{did}` while in-progress cancels and removes the file from disk.
   - Tab close (explicit and TTL) removes the per-tab download directory.
   - Idle sweep does not evict a tab while a download is in progress.
   - Multiple downloads on one tab are tracked and served independently.
+  - Subresources of an HTML page (e.g. an embedded `<img>`) do not produce download records — only the main frame is intercepted.
 - Pool-state tests for download-related lifecycle (e.g. `setDownloadBehavior` is called at context creation) follow the `test_idle_chrome_shutdown.py` pattern with a fake browser.
 - Smoke tests are not added — downloads work the same against the public internet as against the fixture server, and we already pay the smoke cost on the page-fetching path.
 
