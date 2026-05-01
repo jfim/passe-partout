@@ -67,11 +67,21 @@ curl -X POST localhost:8000/fetch -H 'content-type: application/json' \
 ```
 
 ```
-{"status":200,"final_url":"https://example.com/","html":"<!DOCTYPE html><html lang=\"en\"><head>...</body></html>"}
+{"status":200,"final_url":"https://example.com/","html":"<!DOCTYPE html><html lang=\"en\"><head>...</body></html>","content_type":"text/html"}
 ```
 
 Body: `url` (required), optional `cookies` (array of `{name, value, domain?, path?, expires?, httpOnly?, secure?, sameSite?}`), optional `ttl_seconds`.
-Response: `{status, final_url, html}`.
+Response: `{status, final_url, html, content_type}`. `status` is the actual HTTP status of the main document response (after following redirects), not a fixed 200. `content_type` is the response MIME type (e.g. `text/html`, `application/pdf`), or `null` if no document response was captured (e.g. `about:blank`).
+
+#### Cookie domain scoping
+
+Cookies follow standard browser scoping rules. The `domain` field controls which hosts the cookie is sent to:
+
+- `domain` omitted → host-only scope on the request URL's host. A cookie sent with a request to `https://example.com/...` is scoped to exactly `example.com` and will **not** apply to `www.example.com` or any subdomain. If the request redirects to a different host, the cookie won't follow.
+- `domain: "example.com"` → same as host-only: matches `example.com` only.
+- `domain: ".example.com"` (leading dot) → matches `example.com`, `www.example.com`, `api.example.com`, and any other subdomain.
+
+If you expect redirects across subdomains, set `domain` with a leading dot.
 
 ### Stateful tabs
 
@@ -79,14 +89,14 @@ For multi-step interaction, create a tab, drive it, then delete it.
 
 | Method & path | Purpose |
 | --- | --- |
-| `POST /tabs` | Create a tab. Body: `{url, cookies?, ttl_seconds?}` → `{id, status, final_url}`. Returns 429 if `MAX_TABS` reached. |
+| `POST /tabs` | Create a tab. Body: `{url, cookies?, ttl_seconds?}` → `{id, status, final_url, content_type}`. Returns 429 if `MAX_TABS` reached. |
 | `GET /tabs` | List active tabs. |
 | `GET /tabs/{id}` | Tab state: `{url, title, ready_state}`. |
 | `DELETE /tabs/{id}` | Close the tab. |
 | `GET /tabs/{id}/html` | Current document HTML. |
 | `GET /tabs/{id}/cookies` | Cookies visible to the tab. |
 | `GET /tabs/{id}/screenshot` | PNG of the viewport. |
-| `POST /tabs/{id}/goto` | Navigate. Body: `{url}` → `{status, final_url}`. |
+| `POST /tabs/{id}/goto` | Navigate. Body: `{url}` → `{status, final_url, content_type}`. |
 | `POST /tabs/{id}/click` | Click a selector. Body: `{selector}`. |
 | `POST /tabs/{id}/type` | Type into a selector. Body: `{selector, text}`. |
 | `POST /tabs/{id}/eval` | Evaluate JS in the page. Body: `{js}` → `{result}`. |
