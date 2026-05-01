@@ -102,6 +102,68 @@ class DownloadCoordinator:
 
         tab.add_handler(uc.cdp.browser.DownloadWillBegin, _on_will_begin)
         tab.add_handler(uc.cdp.browser.DownloadProgress, _on_progress)
+
+        async def _on_request_paused(evt) -> None:
+            rec = self._registry.get(tab_id) if self._registry else None
+            main_frame_id = rec.main_frame_id if rec else None
+            if main_frame_id is not None and evt.frame_id != main_frame_id:
+                await tab.send(uc.cdp.fetch.continue_response(request_id=evt.request_id))
+                return
+
+            headers = list(evt.response_headers or [])
+            ctype = ""
+            for h in headers:
+                if h.name.lower() == "content-type":
+                    ctype = (h.value or "").lower()
+                    break
+            is_html = ctype.startswith("text/html") or ctype.startswith("application/xhtml+xml")
+            if is_html:
+                await tab.send(uc.cdp.fetch.continue_response(request_id=evt.request_id))
+                return
+
+            # Non-HTML: inject Content-Disposition: attachment.
+            # When modifying headers, response_code and response_phrase must also be provided.
+            status_code = evt.response_status_code or 200
+            status_text = evt.response_status_text or "OK"
+            headers = [h for h in headers if h.name.lower() != "content-disposition"]
+            headers.append(uc.cdp.fetch.HeaderEntry(name="Content-Disposition", value="attachment"))
+            await tab.send(
+                uc.cdp.fetch.continue_response(
+                    request_id=evt.request_id,
+                    response_code=status_code,
+                    response_phrase=status_text,
+                    response_headers=headers,
+                )
+            )
+
+        tab.add_handler(uc.cdp.fetch.RequestPaused, _on_request_paused)
+        await tab.send(
+            uc.cdp.fetch.enable(
+                patterns=[
+                    uc.cdp.fetch.RequestPattern(
+                        url_pattern="*",
+                        resource_type=uc.cdp.network.ResourceType.DOCUMENT,
+                        request_stage=uc.cdp.fetch.RequestStage.RESPONSE,
+                    )
+                ]
+            )
+        )
+
+        # Capture main frame id and subscribe to frameNavigated so we can update it on navigation.
+        tree = await tab.send(uc.cdp.page.get_frame_tree())
+        rec = self._registry.get(tab_id) if self._registry else None
+        if rec is not None:
+            rec.main_frame_id = tree.frame.id_
+
+        def _on_frame_navigated(evt) -> None:
+            if evt.frame.parent_id is None:
+                rec2 = self._registry.get(tab_id) if self._registry else None
+                if rec2 is not None:
+                    rec2.main_frame_id = evt.frame.id_
+
+        tab.add_handler(uc.cdp.page.FrameNavigated, _on_frame_navigated)
+        await tab.send(uc.cdp.page.enable())
+
         # Pass browser_context_id so behavior applies to incognito/isolated contexts.
         browser_context_id = tab.target.browser_context_id if tab.target else None
         await tab.send(

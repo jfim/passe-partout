@@ -94,3 +94,41 @@ async def test_origin_attachment_creates_download_record(fixture_server, browser
             assert dl.state == "completed"
             assert dl.bytes_received > 0
             await c.delete(f"/tabs/{tab_id}")
+
+
+@pytest.mark.asyncio
+async def test_image_navigation_becomes_download(fixture_server, browser_pool, tmp_path):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/sample.png"})
+            assert r.status_code == 200
+            body = r.json()
+            assert body["download"] is not None
+            assert body["download"]["filename"]  # non-empty (Chromium derives from URL)
+            await c.delete(f"/tabs/{body['id']}")
+
+
+@pytest.mark.asyncio
+async def test_html_navigation_does_not_become_download(fixture_server, browser_pool, tmp_path):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/normal_page.html"})
+            assert r.status_code == 200
+            assert r.json()["download"] is None
+            await c.delete(f"/tabs/{r.json()['id']}")
