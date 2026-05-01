@@ -14,6 +14,7 @@ class TabRecord:
     last_used_at: float
     ttl_seconds: int
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    nav: Any = None
 
 
 class TabRegistry:

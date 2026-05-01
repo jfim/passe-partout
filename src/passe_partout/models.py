@@ -41,6 +41,7 @@ class CreateTabResponse(BaseModel):
     id: int
     status: int
     final_url: str
+    content_type: str | None = None
 
 
 class FetchRequest(BaseModel):
@@ -53,6 +54,7 @@ class FetchResponse(BaseModel):
     status: int
     final_url: str
     html: str
+    content_type: str | None = None
 
 
 class GotoRequest(BaseModel):
@@ -62,6 +64,7 @@ class GotoRequest(BaseModel):
 class GotoResponse(BaseModel):
     status: int
     final_url: str
+    content_type: str | None = None
 
 
 class ClickRequest(BaseModel):

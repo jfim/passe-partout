@@ -26,6 +26,7 @@ from passe_partout.models import (
     TypeRequest,
     WaitRequest,
 )
+from passe_partout.nav_capture import NavCapture
 from passe_partout.tab_registry import TabRegistry
 
 
@@ -149,14 +150,15 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 )
 
         try:
+            tab = await pool.create_context("about:blank")
+            nav = NavCapture(tab)
+            await nav.attach()
             if req.cookies:
-                # Create context first at about:blank, set cookies, then navigate
-                tab = await pool.create_context("about:blank")
                 cdp_cookies = _cookies_to_cdp(req.cookies, url=req.url)
                 await tab.send(uc.cdp.network.set_cookies(cdp_cookies))
-                await tab.get(req.url)
-            else:
-                tab = await pool.create_context(req.url)
+            nav.reset()
+            await tab.get(req.url)
+            await nav.wait()
         except Exception as e:
             return JSONResponse(
                 status_code=502,
@@ -165,7 +167,13 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
 
         ttl = req.ttl_seconds if req.ttl_seconds is not None else cfg_now.idle_tab_close_seconds
         rec = registry.register(tab=tab, ttl_seconds=ttl)
-        return CreateTabResponse(id=rec.id, status=200, final_url=tab.url or req.url)
+        rec.nav = nav
+        return CreateTabResponse(
+            id=rec.id,
+            status=nav.status if nav.status is not None else 200,
+            final_url=tab.url or req.url,
+            content_type=nav.mime_type,
+        )
 
     @app.delete("/tabs/{tab_id}", status_code=204)
     async def delete_tab(tab_id: int):
@@ -262,12 +270,18 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
         async with rec.lock:
             try:
+                if rec.nav is not None:
+                    rec.nav.reset()
                 await rec.tab.get(req.url)
+                if rec.nav is not None:
+                    await rec.nav.wait()
             except Exception as e:
                 return JSONResponse(
                     status_code=502, content={"error": "browser_error", "detail": str(e)}
                 )
-        return GotoResponse(status=200, final_url=rec.tab.url or req.url)
+        status = rec.nav.status if rec.nav and rec.nav.status is not None else 200
+        ctype = rec.nav.mime_type if rec.nav else None
+        return GotoResponse(status=status, final_url=rec.tab.url or req.url, content_type=ctype)
 
     @app.post("/tabs/{tab_id}/click", status_code=204)
     async def click(tab_id: int, req: ClickRequest):
@@ -394,7 +408,12 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                         break
                     await _asyncio.sleep(0.05)
                 html = await rec.tab.get_content()
-            return FetchResponse(status=200, final_url=rec.tab.url or req.url, html=html)
+            return FetchResponse(
+                status=created.status,
+                final_url=rec.tab.url or req.url,
+                html=html,
+                content_type=created.content_type,
+            )
         finally:
             registry.remove(tid)
             try:
