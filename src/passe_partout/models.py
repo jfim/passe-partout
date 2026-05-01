@@ -37,11 +37,29 @@ class TabState(BaseModel):
     ready_state: str
 
 
+class DownloadInfo(BaseModel):
+    id: str
+    filename: str
+    size_bytes: int  # -1 when unknown
+
+
+class DownloadStatus(BaseModel):
+    id: str
+    url: str
+    filename: str
+    state: str  # "in_progress" | "completed" | "canceled"
+    bytes_received: int
+    size_bytes: int  # -1 when unknown
+    started_at: float
+    completed_at: float | None
+
+
 class CreateTabResponse(BaseModel):
     id: int
     status: int
     final_url: str
     content_type: str | None = None
+    download: DownloadInfo | None = None
 
 
 class FetchRequest(BaseModel):
@@ -65,6 +83,7 @@ class GotoResponse(BaseModel):
     status: int
     final_url: str
     content_type: str | None = None
+    download: DownloadInfo | None = None
 
 
 class ClickRequest(BaseModel):
