@@ -25,18 +25,22 @@ Out:
 
 ### Forcing non-HTML into the download path
 
-We enable `Fetch` interception scoped to main-frame document requests:
+We enable `Fetch` interception scoped to document requests at the response stage:
 
 ```
 Fetch.enable(patterns=[{"resourceType": "Document", "requestStage": "Response"}])
 ```
 
-On each `Fetch.requestPaused` event (response stage), we read the `Content-Type` response header:
+The `resourceType: "Document"` filter ensures non-document subresources (scripts, stylesheets, images, fonts, XHR, fetch(), WebSocket, etc.) are never paused — they flow through Chromium uninterrupted. Page-loaded JavaScript and other embedded assets are unaffected by interception, regardless of whether their server sends `Content-Disposition: inline` or anything else.
 
-- If it starts with `text/html` or `application/xhtml+xml` → `Fetch.continueResponse()` unmodified. Page renders normally.
-- Otherwise → `Fetch.continueResponse(responseHeaders=<original + Content-Disposition: attachment>)`. Chromium then routes the response through its download manager, firing `Browser.downloadWillBegin`. From there the flow is identical to a download the origin marked `attachment` itself.
+`Document` does, however, match iframe document loads in addition to the main-frame navigation. To avoid rewriting iframe responses, the handler compares the event's `frameId` to the tab's main frame id and only rewrites when they match. The main frame id is captured at tab creation via `Page.getFrameTree()` and refreshed on each `Page.frameNavigated` event whose `Frame` has no `parentId` (cross-origin navigations can rotate the id in some Chromium configurations).
 
-Subresources (images, scripts, stylesheets, XHR fetched by page JS) are not intercepted — the `resourceType: "Document"` filter ensures we only touch main-frame navigations. Click-triggered downloads (which Chromium already routes through the download manager) need no Fetch involvement; they hit `Browser.downloadWillBegin` directly.
+On each main-frame `Fetch.requestPaused` event (response stage), the handler reads the `Content-Type` response header:
+
+- Starts with `text/html` or `application/xhtml+xml` → `Fetch.continueResponse()` unmodified. Page renders normally.
+- Anything else (including missing Content-Type) → `Fetch.continueResponse(responseHeaders=<original + Content-Disposition: attachment>)`. Chromium routes the response through its download manager, firing `Browser.downloadWillBegin`. From there the flow is identical to a download the origin marked `attachment` itself.
+
+Iframe `Fetch.requestPaused` events are passed through with `Fetch.continueResponse(requestId)` and no modifications. Click-triggered downloads (which Chromium already routes through the download manager) need no Fetch involvement; they hit `Browser.downloadWillBegin` directly.
 
 ### Download lifecycle
 
@@ -185,7 +189,8 @@ No changes to existing env vars. `IDLE_TAB_CLOSE_SECONDS` continues to govern ta
   - Tab close (explicit and TTL) removes the per-tab download directory.
   - Idle sweep does not evict a tab while a download is in progress.
   - Multiple downloads on one tab are tracked and served independently.
-  - Subresources of an HTML page (e.g. an embedded `<img>`) do not produce download records — only the main frame is intercepted.
+  - Subresources of an HTML page (e.g. an embedded `<img>` or `<script>`) do not produce download records — the `resourceType: "Document"` filter excludes them from interception entirely.
+  - An HTML page containing an `<iframe>` whose `src` points at a non-HTML resource does not produce a download record — the iframe is filtered out by the `frameId` check, even though it matches the `Document` resource type.
 - Pool-state tests for download-related lifecycle (e.g. `setDownloadBehavior` is called at context creation) follow the `test_idle_chrome_shutdown.py` pattern with a fake browser.
 - Smoke tests are not added — downloads work the same against the public internet as against the fixture server, and we already pay the smoke cost on the page-fetching path.
 
