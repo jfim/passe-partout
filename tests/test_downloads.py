@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -63,3 +64,33 @@ async def test_tab_creation_creates_download_dir(browser_pool, fixture_server, t
             assert tab_dir.exists()
             await c.delete(f"/tabs/{tab_id}")
             assert not tab_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_origin_attachment_creates_download_record(fixture_server, browser_pool, tmp_path):
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/binary.zip"})
+            assert r.status_code == 200
+            body = r.json()
+            assert body["download"] is not None
+            assert body["download"]["filename"] == "binary.zip"
+            tab_id = body["id"]
+            # Wait for completion event.
+            dl = None
+            for _ in range(40):
+                rec = app.state.registry.get(tab_id)
+                dl = next(iter(rec.downloads.values()), None)
+                if dl is not None and dl.state == "completed":
+                    break
+                await asyncio.sleep(0.05)
+            assert dl is not None
+            assert dl.state == "completed"
+            assert dl.bytes_received > 0
+            await c.delete(f"/tabs/{tab_id}")

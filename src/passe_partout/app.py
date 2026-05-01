@@ -15,6 +15,7 @@ from passe_partout.models import (
     ClickRequest,
     CreateTabRequest,
     CreateTabResponse,
+    DownloadInfo,
     EvalRequest,
     EvalResponse,
     FetchRequest,
@@ -68,6 +69,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         app.state.pool = state_pool
         app.state.registry = TabRegistry()
         app.state.coord = DownloadCoordinator(root_dir=cfg.download_dir)
+        app.state.coord.set_registry(app.state.registry)
         app.state.sweep_once = sweep_once
 
         import asyncio as _aio
@@ -183,11 +185,23 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 content={"error": "browser_error", "detail": str(e)},
             )
 
+        # Briefly poll for a download record triggered by the navigation.
+        download_info = None
+        for _ in range(20):  # up to ~0.5s
+            if rec.downloads:
+                dl_first = next(iter(rec.downloads.values()))
+                download_info = DownloadInfo(
+                    id=dl_first.id, filename=dl_first.filename, size_bytes=dl_first.size_bytes
+                )
+                break
+            await _asyncio.sleep(0.025)
+
         return CreateTabResponse(
             id=rec.id,
             status=nav.status if nav.status is not None else 200,
             final_url=tab.url or req.url,
             content_type=nav.mime_type,
+            download=download_info,
         )
 
     @app.delete("/tabs/{tab_id}", status_code=204)

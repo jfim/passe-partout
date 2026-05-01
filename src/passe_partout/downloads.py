@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -24,7 +25,7 @@ class DownloadRecord:
 
 
 class DownloadCoordinator:
-    """Owns per-tab download directories and (later) CDP plumbing.
+    """Owns per-tab download directories and CDP download event plumbing.
 
     Each tab gets a directory under <root_dir>/passe-partout/tab-<tab_id>/
     where Chromium writes downloaded files (named by their CDP guid).
@@ -32,6 +33,12 @@ class DownloadCoordinator:
 
     def __init__(self, root_dir: str) -> None:
         self.root = Path(root_dir) / "passe-partout"
+        # guid -> tab_id, populated in downloadWillBegin handler so progress events can be routed.
+        self._tab_lookup: dict[str, int] = {}
+        self._registry = None  # injected by app.py via set_registry()
+
+    def set_registry(self, registry) -> None:
+        self._registry = registry
 
     def tab_dir(self, tab_id: int) -> Path:
         return self.root / f"tab-{tab_id}"
@@ -50,12 +57,57 @@ class DownloadCoordinator:
         """Configure Chromium to route downloads for this tab to its dir.
 
         Must be called before any navigation so behavior is in place when
-        the first response arrives.
+        the first response arrives. Also subscribes to Browser.downloadWillBegin
+        and Browser.downloadProgress to populate TabRecord.downloads.
         """
         download_path = str(self.ensure_tab_dir(tab_id).resolve())
+
+        def _on_will_begin(evt) -> None:
+            rec = self._registry.get(tab_id) if self._registry else None
+            if rec is None:
+                return
+            dl = DownloadRecord(
+                id=evt.guid,
+                url=evt.url,
+                filename=evt.suggested_filename,
+                path=self.tab_dir(tab_id) / evt.guid,
+                started_at=time.time(),
+            )
+            rec.downloads[evt.guid] = dl
+            self._tab_lookup[evt.guid] = tab_id
+
+        def _on_progress(evt) -> None:
+            tid = self._tab_lookup.get(evt.guid)
+            if tid is None or self._registry is None:
+                return
+            rec = self._registry.get(tid)
+            if rec is None:
+                return
+            dl = rec.downloads.get(evt.guid)
+            if dl is None:
+                return
+            dl.bytes_received = int(evt.received_bytes)
+            total = int(evt.total_bytes)
+            dl.size_bytes = -1 if total == 0 else total
+            state = str(evt.state)  # "inProgress" | "completed" | "canceled"
+            if state == "inProgress":
+                dl.state = "in_progress"
+            elif state == "completed":
+                dl.state = "completed"
+                dl.completed_at = time.time()
+            elif state == "canceled":
+                dl.state = "canceled"
+                dl.completed_at = time.time()
+            rec.last_used_at = time.time()
+
+        tab.add_handler(uc.cdp.browser.DownloadWillBegin, _on_will_begin)
+        tab.add_handler(uc.cdp.browser.DownloadProgress, _on_progress)
+        # Pass browser_context_id so behavior applies to incognito/isolated contexts.
+        browser_context_id = tab.target.browser_context_id if tab.target else None
         await tab.send(
             uc.cdp.browser.set_download_behavior(
                 behavior="allowAndName",
+                browser_context_id=browser_context_id,
                 download_path=download_path,
                 events_enabled=True,
             )
