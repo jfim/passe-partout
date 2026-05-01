@@ -199,6 +199,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             )
 
         # Briefly poll for a download record triggered by the navigation.
+        final_url = tab.url or req.url
         download_info = None
         for _ in range(20):  # up to ~0.5s
             if rec.downloads:
@@ -206,13 +207,14 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 download_info = DownloadInfo(
                     id=dl_first.id, filename=dl_first.filename, size_bytes=dl_first.size_bytes
                 )
+                final_url = dl_first.url  # spec requires the origin URL, not about:blank
                 break
             await _asyncio.sleep(0.025)
 
         return CreateTabResponse(
             id=rec.id,
             status=nav.status if nav.status is not None else 200,
-            final_url=tab.url or req.url,
+            final_url=final_url,
             content_type=nav.mime_type,
             download=download_info,
         )
@@ -443,6 +445,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 break
             await _asyncio.sleep(0.025)
 
+        final_url = new_dl.url if new_dl is not None else (rec.tab.url or req.url)
         download_info = (
             DownloadInfo(id=new_dl.id, filename=new_dl.filename, size_bytes=new_dl.size_bytes)
             if new_dl is not None
@@ -450,7 +453,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         )
         return GotoResponse(
             status=status,
-            final_url=rec.tab.url or req.url,
+            final_url=final_url,
             content_type=ctype,
             download=download_info,
         )
