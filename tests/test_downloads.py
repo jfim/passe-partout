@@ -418,6 +418,27 @@ async def test_click_triggers_download(fixture_server, browser_pool, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_multiple_downloads_per_tab(fixture_server, browser_pool, tmp_path):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/binary.zip"})
+            tid = r.json()["id"]
+            await c.post(f"/tabs/{tid}/goto", json={"url": f"{fixture_server}/data.json"})
+            await asyncio.sleep(0.5)
+            lst = (await c.get(f"/tabs/{tid}/downloads")).json()
+            assert len(lst) == 2
+            await c.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
 async def test_idle_sweep_does_not_evict_during_active_download(
     fixture_server, browser_pool, tmp_path
 ):
