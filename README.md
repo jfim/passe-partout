@@ -52,6 +52,7 @@ uv run python -m passe_partout
 | `HEADLESS` | `1` | Set to `0` to launch Chromium with a visible UI instead of headless (requires a display — typically paired with `USE_XVFB=1` in Docker) |
 | `CHROME_PATH` | unset | Absolute path to a Chrome/Chromium executable. When unset, nodriver auto-detects from default install locations |
 | `USE_XVFB` | `0` | Docker image only — set to `1` to start an Xvfb virtual display and run Chromium non-headless inside it. Implies `HEADLESS=0`. |
+| `DOWNLOAD_DIR` | `/tmp` | Base directory for browser downloads. Files are stored under `<DOWNLOAD_DIR>/passe-partout/tab-<id>/` and removed when the tab closes. |
 
 ## API
 
@@ -101,6 +102,48 @@ For multi-step interaction, create a tab, drive it, then delete it.
 | `POST /tabs/{id}/type` | Type into a selector. Body: `{selector, text}`. |
 | `POST /tabs/{id}/eval` | Evaluate JS in the page. Body: `{js}` → `{result}`. |
 | `POST /tabs/{id}/wait` | Wait for a selector and/or network idle. Body: `{selector?, network_idle?, timeout_ms?}`. |
+
+### Downloads
+
+Any non-HTML main-frame response (image, PDF, JSON, `application/octet-stream`, etc.) is automatically captured as a download. The origin's `Content-Disposition` header is ignored for the render-vs-download decision — only the response MIME type determines it.
+
+`POST /tabs` and `POST /tabs/{id}/goto` gain an optional `download` field in their response when the navigation triggers a download:
+
+```json
+{"status": 200, "final_url": "https://example.com/report.pdf", "content_type": "application/pdf",
+ "download": {"id": "d1a2b3", "status": "in_progress", "filename": "report.pdf", "bytes_received": 0, "total_bytes": null}}
+```
+
+Download records are tab-scoped and removed when the tab closes.
+
+| Method & path | Purpose |
+| --- | --- |
+| `GET /tabs/{id}/downloads` | List all downloads on the tab. Each entry is a `DownloadStatus`. |
+| `GET /tabs/{id}/downloads/{did}/status` | Single download status: `{id, status, filename, bytes_received, total_bytes}`. |
+| `GET /tabs/{id}/downloads/{did}` | Retrieve the downloaded bytes. Returns 425 if the download is still in progress, 410 if canceled. |
+| `POST /tabs/{id}/downloads/{did}/cancel` | Cancel a download. Returns 409 if already in a terminal state. |
+| `DELETE /tabs/{id}/downloads/{did}` | Remove the download record and delete the file from disk. |
+
+Files land under `<DOWNLOAD_DIR>/passe-partout/tab-<id>/` (default `DOWNLOAD_DIR=/tmp`).
+
+#### Example
+
+```bash
+# navigate to a binary URL — response includes a download field
+RESP=$(curl -s -X POST localhost:8000/tabs -H 'content-type: application/json' \
+            -d '{"url":"https://example.com/report.pdf"}')
+TAB=$(echo $RESP | jq -r .id)
+DID=$(echo $RESP | jq -r .download.id)
+
+# poll until complete
+curl localhost:8000/tabs/$TAB/downloads/$DID/status
+
+# retrieve the bytes
+curl -o report.pdf localhost:8000/tabs/$TAB/downloads/$DID
+
+# clean up
+curl -X DELETE localhost:8000/tabs/$TAB
+```
 
 ### Health
 
