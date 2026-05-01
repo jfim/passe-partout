@@ -90,14 +90,14 @@ For multi-step interaction, create a tab, drive it, then delete it.
 
 | Method & path | Purpose |
 | --- | --- |
-| `POST /tabs` | Create a tab. Body: `{url, cookies?, ttl_seconds?}` → `{id, status, final_url, content_type}`. Returns 429 if `MAX_TABS` reached. |
+| `POST /tabs` | Create a tab. Body: `{url, cookies?, ttl_seconds?}` → `{id, status, final_url, content_type, download?}`. Returns 429 if `MAX_TABS` reached. |
 | `GET /tabs` | List active tabs. |
 | `GET /tabs/{id}` | Tab state: `{url, title, ready_state}`. |
 | `DELETE /tabs/{id}` | Close the tab. |
 | `GET /tabs/{id}/html` | Current document HTML. |
 | `GET /tabs/{id}/cookies` | Cookies visible to the tab. |
 | `GET /tabs/{id}/screenshot` | PNG of the viewport. |
-| `POST /tabs/{id}/goto` | Navigate. Body: `{url}` → `{status, final_url, content_type}`. |
+| `POST /tabs/{id}/goto` | Navigate. Body: `{url}` → `{status, final_url, content_type, download?}`. |
 | `POST /tabs/{id}/click` | Click a selector. Body: `{selector}`. |
 | `POST /tabs/{id}/type` | Type into a selector. Body: `{selector, text}`. |
 | `POST /tabs/{id}/eval` | Evaluate JS in the page. Body: `{js}` → `{result}`. |
@@ -111,7 +111,7 @@ Any non-HTML main-frame response (image, PDF, JSON, `application/octet-stream`, 
 
 ```json
 {"status": 200, "final_url": "https://example.com/report.pdf", "content_type": "application/pdf",
- "download": {"id": "d1a2b3", "status": "in_progress", "filename": "report.pdf", "bytes_received": 0, "total_bytes": null}}
+ "download": {"id": "d1a2b3", "filename": "report.pdf", "size_bytes": -1}}
 ```
 
 Download records are tab-scoped and removed when the tab closes.
@@ -119,7 +119,7 @@ Download records are tab-scoped and removed when the tab closes.
 | Method & path | Purpose |
 | --- | --- |
 | `GET /tabs/{id}/downloads` | List all downloads on the tab. Each entry is a `DownloadStatus`. |
-| `GET /tabs/{id}/downloads/{did}/status` | Single download status: `{id, status, filename, bytes_received, total_bytes}`. |
+| `GET /tabs/{id}/downloads/{did}/status` | Single download status: `{id, url, filename, state, bytes_received, size_bytes, started_at, completed_at}`. |
 | `GET /tabs/{id}/downloads/{did}` | Retrieve the downloaded bytes. Returns 425 if the download is still in progress, 410 if canceled. |
 | `POST /tabs/{id}/downloads/{did}/cancel` | Cancel a download. Returns 409 if already in a terminal state. |
 | `DELETE /tabs/{id}/downloads/{did}` | Remove the download record and delete the file from disk. |
