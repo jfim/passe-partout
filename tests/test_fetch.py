@@ -31,3 +31,25 @@ async def test_fetch_disposes_tab(client, fixture_server):
     r2 = await client.get("/tabs")
     after = len(r2.json())
     assert after == before, "fetch should dispose its tab"
+
+
+async def test_fixture_server_serves_zip(fixture_server):
+    import httpx
+
+    async with httpx.AsyncClient() as c:
+        r = await c.get(f"{fixture_server}/binary.zip")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/zip"
+        assert r.headers.get("content-disposition", "").startswith("attachment")
+        assert r.content == b"PK\x03\x04 fake zip body"
+
+
+async def test_fixture_server_serves_png_inline(fixture_server):
+    import httpx
+
+    async with httpx.AsyncClient() as c:
+        r = await c.get(f"{fixture_server}/sample.png")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/png"
+        # Origin sends inline (or no CD); spec says we still treat as download.
+        assert "attachment" not in r.headers.get("content-disposition", "")

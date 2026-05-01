@@ -16,15 +16,63 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def fixture_server():
-    async def handler(request: web.Request) -> web.Response:
+    async def html_handler(request: web.Request) -> web.Response:
         name = request.match_info["name"]
         path = FIXTURES / f"{name}.html"
         if not path.exists():
             return web.Response(status=404)
         return web.Response(body=path.read_bytes(), content_type="text/html")
 
+    async def binary_handler(_request: web.Request) -> web.Response:
+        return web.Response(
+            body=b"PK\x03\x04 fake zip body",
+            headers={
+                "Content-Type": "application/zip",
+                "Content-Disposition": 'attachment; filename="binary.zip"',
+            },
+        )
+
+    async def png_handler(_request: web.Request) -> web.Response:
+        # 1x1 transparent PNG.
+        body = bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+            "890000000d49444154789c6300010000000500010d0a2db40000000049454e44ae426082"
+        )
+        return web.Response(
+            body=body,
+            headers={"Content-Type": "image/png", "Content-Disposition": "inline"},
+        )
+
+    async def json_handler(_request: web.Request) -> web.Response:
+        return web.Response(
+            body=b'{"hello":"world"}',
+            headers={"Content-Type": "application/json", "Content-Disposition": "inline"},
+        )
+
+    async def slow_binary_handler(_request: web.Request) -> web.StreamResponse:
+        # Sends 8 chunks of 1KB with delays so tests can observe in_progress state.
+        import asyncio as _asyncio
+
+        resp = web.StreamResponse(
+            headers={
+                "Content-Type": "application/octet-stream",
+                "Content-Disposition": 'attachment; filename="slow.bin"',
+                "Content-Length": str(8 * 1024),
+            }
+        )
+        await resp.prepare(_request)
+        for _ in range(8):
+            await resp.write(b"\x00" * 1024)
+            await _asyncio.sleep(0.2)
+        await resp.write_eof()
+        return resp
+
     app = web.Application()
-    app.router.add_get("/{name}.html", handler)
+    app.router.add_get("/{name}.html", html_handler)
+    app.router.add_get("/binary.zip", binary_handler)
+    app.router.add_get("/sample.png", png_handler)
+    app.router.add_get("/data.json", json_handler)
+    app.router.add_get("/slow.bin", slow_binary_handler)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "127.0.0.1", 0)
