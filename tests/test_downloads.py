@@ -221,6 +221,51 @@ async def test_download_status_404(client):
 
 
 @pytest.mark.asyncio
+async def test_download_bytes_completed(fixture_server, browser_pool, tmp_path):
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/binary.zip"})
+            tid = r.json()["id"]
+            did = r.json()["download"]["id"]
+            for _ in range(40):
+                s = await c.get(f"/tabs/{tid}/downloads/{did}/status")
+                if s.json()["state"] == "completed":
+                    break
+                await asyncio.sleep(0.05)
+            b = await c.get(f"/tabs/{tid}/downloads/{did}")
+            assert b.status_code == 200
+            assert b.headers["content-disposition"].startswith("attachment")
+            assert "binary.zip" in b.headers["content-disposition"]
+            assert b.headers["content-type"].startswith("application/zip")
+            assert b.content == b"PK\x03\x04 fake zip body"
+            await c.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
+async def test_download_bytes_in_progress_returns_425(fixture_server, browser_pool, tmp_path):
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    cfg = Config(download_dir=str(tmp_path))
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/slow.bin"})
+            tid = r.json()["id"]
+            did = r.json()["download"]["id"]
+            b = await c.get(f"/tabs/{tid}/downloads/{did}")
+            assert b.status_code == 425
+            await c.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
 async def test_iframe_document_does_not_become_download(fixture_server, browser_pool, tmp_path):
     """A page whose iframe loads a non-HTML resource must not produce a download."""
     from passe_partout.app import build_app

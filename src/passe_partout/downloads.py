@@ -22,6 +22,7 @@ class DownloadRecord:
     bytes_received: int = 0
     size_bytes: int = -1
     completed_at: float | None = None
+    content_type: str | None = None  # captured from origin via Fetch.requestPaused
 
 
 class DownloadCoordinator:
@@ -36,6 +37,7 @@ class DownloadCoordinator:
         # guid -> tab_id, populated in downloadWillBegin handler so progress events can be routed.
         self._tab_lookup: dict[str, int] = {}
         self._registry = None  # injected by app.py via set_registry()
+        self._pending_content_type: dict[int, str] = {}  # tab_id -> last seen origin Content-Type
 
     def set_registry(self, registry) -> None:
         self._registry = registry
@@ -72,6 +74,7 @@ class DownloadCoordinator:
                 filename=evt.suggested_filename,
                 path=self.tab_dir(tab_id) / evt.guid,
                 started_at=time.time(),
+                content_type=self._pending_content_type.pop(tab_id, None),
             )
             rec.downloads[evt.guid] = dl
             self._tab_lookup[evt.guid] = tab_id
@@ -111,17 +114,21 @@ class DownloadCoordinator:
                 return
 
             headers = list(evt.response_headers or [])
-            ctype = ""
+            ctype_raw = ""
             for h in headers:
                 if h.name.lower() == "content-type":
-                    ctype = (h.value or "").lower()
+                    ctype_raw = h.value or ""
                     break
-            is_html = ctype.startswith("text/html") or ctype.startswith("application/xhtml+xml")
+            ctype_lower = ctype_raw.lower()
+            is_html = ctype_lower.startswith("text/html") or ctype_lower.startswith(
+                "application/xhtml+xml"
+            )
             if is_html:
                 await tab.send(uc.cdp.fetch.continue_response(request_id=evt.request_id))
                 return
 
-            # Non-HTML: inject Content-Disposition: attachment.
+            # Non-HTML: note the content-type for serving later, then inject CD: attachment.
+            self._pending_content_type[tab_id] = ctype_raw  # raw, not lowercased
             # When modifying headers, response_code and response_phrase must also be provided.
             status_code = evt.response_status_code or 200
             status_text = evt.response_status_text or "OK"

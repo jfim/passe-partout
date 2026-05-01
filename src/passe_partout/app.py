@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 import nodriver as uc
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
@@ -331,6 +331,37 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 content={"error": "download_not_found", "detail": f"no download {did}"},
             )
         return _download_to_status(dl)
+
+    @app.get("/tabs/{tab_id}/downloads/{did}")
+    async def download_bytes(tab_id: int, did: str):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        dl = rec.downloads.get(did)
+        if dl is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "download_not_found", "detail": f"no download {did}"},
+            )
+        if dl.state == "in_progress":
+            return JSONResponse(
+                status_code=425,
+                content={"error": "download_in_progress", "detail": "still downloading"},
+                headers={"Retry-After": "1"},
+            )
+        if dl.state == "canceled":
+            return JSONResponse(
+                status_code=410,
+                content={"error": "download_canceled", "detail": "download was canceled"},
+            )
+        return FileResponse(
+            path=str(dl.path),
+            filename=dl.filename,
+            media_type=dl.content_type or "application/octet-stream",
+        )
 
     @app.post("/tabs/{tab_id}/goto", response_model=GotoResponse)
     async def goto(tab_id: int, req: GotoRequest):
