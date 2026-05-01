@@ -415,3 +415,36 @@ async def test_click_triggers_download(fixture_server, browser_pool, tmp_path):
                 await asyncio.sleep(0.05)
             assert lst and lst[0]["filename"] == "binary.zip"
             await c.delete(f"/tabs/{tid}")
+
+
+@pytest.mark.asyncio
+async def test_idle_sweep_does_not_evict_during_active_download(
+    fixture_server, browser_pool, tmp_path
+):
+    import httpx
+
+    from passe_partout.app import build_app
+    from passe_partout.config import Config
+
+    # ttl=1s would otherwise evict quickly. The slow fixture streams ~1.6s,
+    # so without the touch on progress events it would be evicted.
+    cfg = Config(download_dir=str(tmp_path), idle_tab_close_seconds=1)
+    app = build_app(cfg=cfg, browser_pool=browser_pool)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/tabs", json={"url": f"{fixture_server}/slow.bin"})
+            tid = r.json()["id"]
+            # Manually run the sweeper a few times during the download.
+            for _ in range(8):
+                await app.state.sweep_once()
+                await asyncio.sleep(0.2)
+            assert app.state.registry.get(tid) is not None
+            # Eventually the download completes.
+            for _ in range(40):
+                lst = (await c.get(f"/tabs/{tid}/downloads")).json()
+                if lst and lst[0]["state"] == "completed":
+                    break
+                await asyncio.sleep(0.1)
+            assert lst[0]["state"] == "completed"
+            await c.delete(f"/tabs/{tid}")
