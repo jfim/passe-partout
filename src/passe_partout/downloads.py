@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+import nodriver as uc
+
 DownloadState = Literal["in_progress", "completed", "canceled"]
 
 
@@ -43,3 +45,21 @@ class DownloadCoordinator:
         d = self.tab_dir(tab_id)
         if d.exists():
             shutil.rmtree(d, ignore_errors=True)
+
+    async def attach_tab(self, tab_id: int, tab: uc.Tab) -> None:
+        """Configure Chromium to route downloads for this tab to its dir.
+
+        Must be called before any navigation so behavior is in place when
+        the first response arrives.
+        """
+        download_path = str(self.ensure_tab_dir(tab_id).resolve())
+        await tab.send(
+            uc.cdp.browser.set_download_behavior(
+                behavior="allowAndName",
+                download_path=download_path,
+                events_enabled=True,
+            )
+        )
+
+    async def detach_tab(self, tab_id: int) -> None:
+        self.cleanup_tab_dir(tab_id)

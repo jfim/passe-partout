@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
+from passe_partout.downloads import DownloadCoordinator
 from passe_partout.models import (
     ClickRequest,
     CreateTabRequest,
@@ -36,13 +37,14 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
     async def sweep_once():
         registry = app.state.registry
         pool = app.state.pool
+        coord = app.state.coord
         for tid in registry.idle_ids():
             rec = registry.remove(tid)
             if rec is not None:
                 try:
                     await pool.close_context(rec.tab)
-                except Exception:
-                    pass
+                finally:
+                    await coord.detach_tab(tid)
 
     async def sweeper_loop():
         import asyncio as _aio
@@ -65,6 +67,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         app.state.cfg = cfg
         app.state.pool = state_pool
         app.state.registry = TabRegistry()
+        app.state.coord = DownloadCoordinator(root_dir=cfg.download_dir)
         app.state.sweep_once = sweep_once
 
         import asyncio as _aio
@@ -141,6 +144,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         cfg_now = app.state.cfg
         registry = app.state.registry
         pool = app.state.pool
+        coord = app.state.coord
 
         async with registry.mu:
             if registry.count() >= cfg_now.max_tabs:
@@ -149,10 +153,16 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     content={"error": "max_tabs", "detail": f"cap of {cfg_now.max_tabs} reached"},
                 )
 
+        tab = None
+        rec = None
         try:
             tab = await pool.create_context("about:blank")
+            ttl = req.ttl_seconds if req.ttl_seconds is not None else cfg_now.idle_tab_close_seconds
+            rec = registry.register(tab=tab, ttl_seconds=ttl)
+            await coord.attach_tab(rec.id, tab)
             nav = NavCapture(tab)
             await nav.attach()
+            rec.nav = nav
             if req.cookies:
                 cdp_cookies = _cookies_to_cdp(req.cookies, url=req.url)
                 await tab.send(uc.cdp.network.set_cookies(cdp_cookies))
@@ -160,14 +170,19 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             await tab.get(req.url)
             await nav.wait()
         except Exception as e:
+            if rec is not None:
+                registry.remove(rec.id)
+                await coord.detach_tab(rec.id)
+            if tab is not None:
+                try:
+                    await pool.close_context(tab)
+                except Exception:
+                    pass
             return JSONResponse(
                 status_code=502,
                 content={"error": "browser_error", "detail": str(e)},
             )
 
-        ttl = req.ttl_seconds if req.ttl_seconds is not None else cfg_now.idle_tab_close_seconds
-        rec = registry.register(tab=tab, ttl_seconds=ttl)
-        rec.nav = nav
         return CreateTabResponse(
             id=rec.id,
             status=nav.status if nav.status is not None else 200,
@@ -179,6 +194,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
     async def delete_tab(tab_id: int):
         registry = app.state.registry
         pool = app.state.pool
+        coord = app.state.coord
         rec = registry.remove(tab_id)
         if rec is None:
             return JSONResponse(
@@ -187,8 +203,8 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             )
         try:
             await pool.close_context(rec.tab)
-        except Exception:
-            pass
+        finally:
+            await coord.detach_tab(tab_id)
         return Response(status_code=204)
 
     @app.get("/tabs/{tab_id}", response_model=TabState)
@@ -398,6 +414,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         tid = created.id
         registry = app.state.registry
         pool = app.state.pool
+        coord = app.state.coord
         rec = registry.get(tid)
         try:
             async with rec.lock:
@@ -420,5 +437,6 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 await pool.close_context(rec.tab)
             except Exception:
                 pass
+            await coord.detach_tab(tid)
 
     return app
