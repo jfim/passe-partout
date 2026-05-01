@@ -15,6 +15,7 @@ class Config:
     extension_dirs: list[str] = field(default_factory=list)
     headless: bool = True
     chrome_path: str | None = None
+    download_dir: str = "/tmp"
 
     @classmethod
     def from_env(cls) -> Config:
@@ -33,4 +34,5 @@ class Config:
             extension_dirs=ext_dirs,
             headless=os.environ.get("HEADLESS", "1").lower() not in ("0", "false", "no"),
             chrome_path=os.environ.get("CHROME_PATH") or None,
+            download_dir=os.environ.get("DOWNLOAD_DIR", "/tmp"),
         )

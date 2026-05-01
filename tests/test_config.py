@@ -54,3 +54,15 @@ def test_extension_dir_must_exist(monkeypatch):
     monkeypatch.setenv("UNPACKED_EXTENSION_DIRS", "/nonexistent/path")
     with pytest.raises(ValueError, match="not a directory"):
         Config.from_env()
+
+
+def test_download_dir_default_is_tmp(monkeypatch):
+    monkeypatch.delenv("DOWNLOAD_DIR", raising=False)
+    cfg = Config.from_env()
+    assert cfg.download_dir == "/tmp"
+
+
+def test_download_dir_from_env(monkeypatch):
+    monkeypatch.setenv("DOWNLOAD_DIR", "/var/passe-partout-dl")
+    cfg = Config.from_env()
+    assert cfg.download_dir == "/var/passe-partout-dl"
