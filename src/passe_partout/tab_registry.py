@@ -5,6 +5,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from passe_partout.downloads import DownloadRecord
+
 
 @dataclass
 class TabRecord:
@@ -15,6 +17,8 @@ class TabRecord:
     ttl_seconds: int
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     nav: Any = None
+    downloads: dict[str, DownloadRecord] = field(default_factory=dict)
+    main_frame_id: str | None = None
 
 
 class TabRegistry:

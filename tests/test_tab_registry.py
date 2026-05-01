@@ -65,3 +65,11 @@ async def test_lock_is_per_tab():
         # b.lock is independent — should be acquirable without waiting
         await asyncio.wait_for(b.lock.acquire(), timeout=0.1)
         b.lock.release()
+
+
+def test_tab_record_has_downloads_dict():
+    from passe_partout.tab_registry import TabRecord
+
+    rec = TabRecord(id=1, tab=None, created_at=0.0, last_used_at=0.0, ttl_seconds=10)
+    assert rec.downloads == {}
+    assert rec.main_frame_id is None
