@@ -15,7 +15,7 @@ docker pull ghcr.io/jfim/passe-partout:0.3
 docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.3
 ```
 
-The image listens on `0.0.0.0:8000`, runs Chromium headless under tini as a non-root user, and exposes a `/healthz` healthcheck.
+The image listens on `0.0.0.0:8000`, runs Chrome for Testing headless under tini as a non-root user, and exposes a `/healthz` healthcheck. Chrome for Testing is bundled instead of Chromium because Google Chrome stable rejects `--load-extension` (breaking `UNPACKED_EXTENSION_DIRS`); CfT mirrors stable behavior closely while keeping the automation switches honored. The version is pinned via the `CHROME_FOR_TESTING_VERSION` build arg in the Dockerfile.
 
 To load unpacked Chromium extensions, mount each as a subdirectory of `/extensions` and point `UNPACKED_EXTENSION_DIRS` at them (colon-separated):
 
@@ -51,7 +51,7 @@ uv run python -m passe_partout
 | `UNPACKED_EXTENSION_DIRS` | unset | `:`-separated paths to unpacked Chromium extensions to load at launch. Requires `SHARED_PROFILE=1`. Note: Google Chrome stable rejects `--load-extension`; point `CHROME_PATH` at Chromium or Chrome for Testing. |
 | `SHARED_PROFILE` | `0` | When `1`, every tab shares the default Chrome profile (cookies/storage are not isolated between callers). Required when `UNPACKED_EXTENSION_DIRS` is set, since Chrome doesn't enable `--load-extension` extensions in incognito-style contexts. The opt-in is explicit because the cross-tab cookie sharing it implies is a meaningful posture change. |
 | `HEADLESS` | `1` | Set to `0` to launch Chromium with a visible UI instead of headless (requires a display — typically paired with `USE_XVFB=1` in Docker) |
-| `CHROME_PATH` | unset | Absolute path to a Chrome/Chromium executable. When unset, nodriver auto-detects from default install locations |
+| `CHROME_PATH` | unset (set to the bundled Chrome for Testing in the Docker image) | Absolute path to a Chrome/Chromium executable. When unset, nodriver auto-detects from default install locations. Note: Google Chrome stable rejects `--load-extension` regardless of feature flags — point this at Chromium or Chrome for Testing if you need extensions. |
 | `USE_XVFB` | `0` | Docker image only — set to `1` to start an Xvfb virtual display and run Chromium non-headless inside it. Implies `HEADLESS=0`. |
 | `DOWNLOAD_DIR` | `/tmp` | Base directory for browser downloads. Files are stored under `<DOWNLOAD_DIR>/passe-partout/tab-<id>/` and removed when the tab closes. |
 

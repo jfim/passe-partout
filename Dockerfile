@@ -1,6 +1,12 @@
 # syntax=docker/dockerfile:1.7
 FROM python:3.12-slim-bookworm
 
+# Chrome for Testing — Google's automation-friendly stable build. Pinned because
+# CfT releases bump weekly and we want reproducible images. Bump the build arg
+# (and re-test) to track upstream stable. Only linux64 is published, so the image
+# is implicitly amd64. Catalog: https://googlechromelabs.github.io/chrome-for-testing/
+ARG CHROME_FOR_TESTING_VERSION=148.0.7778.97
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -8,17 +14,20 @@ ENV DEBIAN_FRONTEND=noninteractive \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH=/opt/venv/bin:/root/.local/bin:$PATH \
     HOST=0.0.0.0 \
-    PORT=8000
+    PORT=8000 \
+    CHROME_PATH=/opt/chrome-for-testing/chrome-linux64/chrome
 
 # Keep apt's downloaded .debs around so BuildKit cache mounts work.
 RUN rm -f /etc/apt/apt.conf.d/docker-clean \
     && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
+# Note: no `chromium` package — we ship Chrome for Testing instead (see below).
+# The libs below are CfT's runtime dependencies (same set Debian's chromium pulls).
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-        chromium \
         tini \
+        unzip \
         xvfb \
         xauth \
         ca-certificates \
@@ -42,6 +51,17 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libxkbcommon0 \
         libxrandr2 \
         xdg-utils
+
+# Install Chrome for Testing. We use it instead of Google Chrome stable because
+# stable hard-blocks --load-extension regardless of feature flags, breaking
+# UNPACKED_EXTENSION_DIRS. CfT mirrors stable behavior closely but keeps the
+# automation switches honored.
+RUN curl -fsSL -o /tmp/cft.zip \
+        "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_FOR_TESTING_VERSION}/linux64/chrome-linux64.zip" \
+    && mkdir -p /opt/chrome-for-testing \
+    && unzip -q /tmp/cft.zip -d /opt/chrome-for-testing \
+    && rm /tmp/cft.zip \
+    && /opt/chrome-for-testing/chrome-linux64/chrome --version
 
 # uv for dependency install.
 RUN --mount=type=cache,target=/root/.cache/uv \
