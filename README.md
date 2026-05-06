@@ -17,17 +17,19 @@ docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.3
 
 The image listens on `0.0.0.0:8000`, runs Chrome for Testing headless under tini as a non-root user, and exposes a `/healthz` healthcheck. Chrome for Testing is bundled instead of Chromium because Google Chrome stable rejects `--load-extension` (breaking `UNPACKED_EXTENSION_DIRS`); CfT mirrors stable behavior closely while keeping the automation switches honored.
 
-The Chrome version is selected at build time via two build args:
+The Chrome version is selected at build time via three build args:
 
 - `CHROME_FOR_TESTING_CHANNEL` (default `Stable`) — resolves the latest version of the named channel (`Stable`, `Beta`, `Dev`, or `Canary`) from the [last-known-good catalog](https://googlechromelabs.github.io/chrome-for-testing/) at build time.
-- `CHROME_FOR_TESTING_VERSION` (default empty) — when set, pins to an exact version and ignores the channel. Use this for reproducible builds.
+- `CHROME_FOR_TESTING_VERSION` (default empty) — when set, pins to an exact version and ignores the channel. Use this for reproducible local builds.
+- `CFT_CACHE_BUSTER` (default empty) — escape hatch for Docker's layer cache. Channel-based builds normally reuse the cached CfT layer because the cache key is derived from RUN text + ARG values, not the resolved URL. Pass any value (a date string is conventional) to invalidate just that layer when you want a fresh download.
 
-Channel-based builds rely on Docker's layer cache, which keys off the RUN command and ARG values, **not** the resolved download URL. To force a refresh after upstream bumps, rebuild with `--no-cache` (or set `CHROME_FOR_TESTING_VERSION` to pin):
+GitHub Actions sets `CFT_CACHE_BUSTER` to the current ISO calendar week (`%G-%V`), so each weekly run bumps it once and CI tracks upstream Stable without manual intervention. A release tagged in the same week as a recent master build hits the cache and reuses identical image bytes.
 
 ```bash
-docker build --no-cache -t passe-partout .                        # latest Stable
-docker build --build-arg CHROME_FOR_TESTING_CHANNEL=Beta -t ... . # latest Beta
-docker build --build-arg CHROME_FOR_TESTING_VERSION=148.0.7778.97 -t ... .  # pinned
+docker build -t passe-partout .                                            # latest Stable, cached after first build
+docker build --build-arg CHROME_FOR_TESTING_CHANNEL=Beta -t ... .          # latest Beta
+docker build --build-arg CHROME_FOR_TESTING_VERSION=148.0.7778.97 -t ... . # pinned
+docker build --build-arg CFT_CACHE_BUSTER=$(date +%F) -t ... .             # force a fresh resolve
 ```
 
 To load unpacked Chromium extensions, mount each as a subdirectory of `/extensions` and point `UNPACKED_EXTENSION_DIRS` at them (colon-separated):

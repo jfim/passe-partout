@@ -37,11 +37,20 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
+      # Bust the CfT layer's cache once per ISO calendar week so channel-based
+      # builds pick up upstream Stable bumps without manual --no-cache. Releases
+      # tagged in the same week as a recent master build hit the cache and reuse
+      # the same image bytes.
+      - id: cft_buster
+        run: echo "value=$(date -u +%G-%V)" >> $GITHUB_OUTPUT
+
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            CFT_CACHE_BUSTER=${{ steps.cft_buster.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

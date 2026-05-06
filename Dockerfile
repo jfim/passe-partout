@@ -6,13 +6,16 @@ FROM python:3.12-slim-bookworm
 #   * CHANNEL (default): resolve the channel's latest version from the official
 #     last-known-good catalog at build time. Channels: Stable | Beta | Dev | Canary.
 #   * VERSION: pin to an exact version. When set, takes precedence over CHANNEL.
-# Caveat: Docker's layer cache keys off the RUN command text and build ARGs, not
-# the resolved URL — so a channel-based rebuild will happily reuse a stale CfT
-# layer. Pass `--no-cache` (or bump VERSION) when you want fresh.
+# Cache caveat: Docker's layer cache keys off the RUN command text and build
+# ARGs, not the resolved download URL. CFT_CACHE_BUSTER lets a caller (e.g. CI)
+# pass a value that changes when they want the channel re-resolved (typically a
+# date stamp like `2026-19`). Empty default means local builds reuse the cache
+# normally — pass `--no-cache` or bump CFT_CACHE_BUSTER for a fresh download.
 # Only linux64 is published, so the image is implicitly amd64.
 # Catalog: https://googlechromelabs.github.io/chrome-for-testing/
 ARG CHROME_FOR_TESTING_CHANNEL=Stable
 ARG CHROME_FOR_TESTING_VERSION=
+ARG CFT_CACHE_BUSTER=
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -64,6 +67,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # UNPACKED_EXTENSION_DIRS. CfT mirrors stable behavior closely but keeps the
 # automation switches honored.
 RUN set -eu; \
+    : "cache-buster: ${CFT_CACHE_BUSTER:-(none)}"; \
     if [ -n "${CHROME_FOR_TESTING_VERSION}" ]; then \
         url="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_FOR_TESTING_VERSION}/linux64/chrome-linux64.zip"; \
         echo "Pinned CfT ${CHROME_FOR_TESTING_VERSION} → ${url}"; \
