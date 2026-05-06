@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from passe_partout.downloads import DownloadRecord
+from passe_partout.resources import ResourceRecord
 
 
 @dataclass
@@ -18,6 +19,7 @@ class TabRecord:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     nav: Any = None
     downloads: dict[str, DownloadRecord] = field(default_factory=dict)
+    resources: dict[str, ResourceRecord] = field(default_factory=dict)
     main_frame_id: str | None = None
 
 

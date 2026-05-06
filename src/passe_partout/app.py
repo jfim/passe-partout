@@ -24,12 +24,14 @@ from passe_partout.models import (
     GotoRequest,
     GotoResponse,
     HealthResponse,
+    ResourceSummary,
     TabState,
     TabSummary,
     TypeRequest,
     WaitRequest,
 )
 from passe_partout.nav_capture import NavCapture
+from passe_partout.resources import ResourceRecorder
 from passe_partout.tab_registry import TabRegistry
 
 
@@ -40,6 +42,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         registry = app.state.registry
         pool = app.state.pool
         coord = app.state.coord
+        recorder = app.state.recorder
         for tid in registry.idle_ids():
             rec = registry.remove(tid)
             if rec is not None:
@@ -47,6 +50,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     await pool.close_context(rec.tab)
                 finally:
                     await coord.detach_tab(tid)
+                    recorder.detach_tab(tid)
 
     async def sweeper_loop():
         import asyncio as _aio
@@ -73,6 +77,8 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             root_dir=cfg.download_dir, shared_profile=cfg.shared_profile
         )
         app.state.coord.set_registry(app.state.registry)
+        app.state.recorder = ResourceRecorder()
+        app.state.recorder.set_registry(app.state.registry)
         app.state.sweep_once = sweep_once
 
         import asyncio as _aio
@@ -177,6 +183,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             ttl = req.ttl_seconds if req.ttl_seconds is not None else cfg_now.idle_tab_close_seconds
             rec = registry.register(tab=tab, ttl_seconds=ttl)
             await coord.attach_tab(rec.id, tab)
+            await app.state.recorder.attach_tab(rec.id, tab)
             nav = NavCapture(tab)
             await nav.attach()
             rec.nav = nav
@@ -190,6 +197,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             if rec is not None:
                 registry.remove(rec.id)
                 await coord.detach_tab(rec.id)
+                app.state.recorder.detach_tab(rec.id)
             if tab is not None:
                 try:
                     await pool.close_context(tab)
@@ -236,6 +244,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             await pool.close_context(rec.tab)
         finally:
             await coord.detach_tab(tab_id)
+            app.state.recorder.detach_tab(tab_id)
         return Response(status_code=204)
 
     @app.get("/tabs/{tab_id}", response_model=TabState)
@@ -309,6 +318,52 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         async with rec.lock:
             b64 = await rec.tab.send(uc.cdp.page.capture_screenshot(format_="png"))
         return Response(content=base64.b64decode(b64), media_type="image/png")
+
+    @app.get("/tabs/{tab_id}/resources", response_model=list[ResourceSummary])
+    async def list_resources(tab_id: int):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        return [
+            ResourceSummary(
+                request_id=r.request_id,
+                url=r.url,
+                status=r.status,
+                mime_type=r.mime_type,
+                resource_type=r.resource_type,
+                encoded_size=r.encoded_size,
+            )
+            for r in rec.resources.values()
+        ]
+
+    @app.get("/tabs/{tab_id}/resources/{request_id}")
+    async def get_resource_body(tab_id: int, request_id: str):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        meta = rec.resources.get(request_id)
+        if meta is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "resource_not_found", "detail": request_id},
+            )
+        async with rec.lock:
+            try:
+                body, _ = await app.state.recorder.get_body(rec.tab, request_id)
+            except Exception as e:
+                # Body may have been evicted by Chrome (navigation, buffer cap, opaque
+                # cross-origin response, etc.). Surface as 410 Gone.
+                return JSONResponse(
+                    status_code=410,
+                    content={"error": "body_unavailable", "detail": str(e)},
+                )
+        return Response(content=body, media_type=meta.mime_type or "application/octet-stream")
 
     @app.get("/tabs/{tab_id}/downloads", response_model=list[DownloadStatus])
     async def list_downloads(tab_id: int):
@@ -599,5 +654,6 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             except Exception:
                 pass
             await coord.detach_tab(tid)
+            app.state.recorder.detach_tab(tid)
 
     return app

@@ -48,7 +48,8 @@ uv run python -m passe_partout
 | `IDLE_TAB_CLOSE_SECONDS` | `300` | Timeout after which idle tabs are closed. Can be overridden on a per-tab basis via `ttl_seconds` on creation |
 | `IDLE_CHROME_SHUTDOWN_SECONDS` | `300` | Seconds with no open tabs after which Chromium itself is shut down. Set to `0` to keep Chromium always running and start it eagerly. When non-zero, Chromium is started lazily on first request and restarted after shutdown as needed |
 | `AUTH_TOKEN` | unset | When set, all routes except `/healthz` require `Authorization: Bearer <token>` |
-| `UNPACKED_EXTENSION_DIRS` | unset | `:`-separated paths to unpacked Chromium extensions to load at launch |
+| `UNPACKED_EXTENSION_DIRS` | unset | `:`-separated paths to unpacked Chromium extensions to load at launch. Requires `SHARED_PROFILE=1`. Note: Google Chrome stable rejects `--load-extension`; point `CHROME_PATH` at Chromium or Chrome for Testing. |
+| `SHARED_PROFILE` | `0` | When `1`, every tab shares the default Chrome profile (cookies/storage are not isolated between callers). Required when `UNPACKED_EXTENSION_DIRS` is set, since Chrome doesn't enable `--load-extension` extensions in incognito-style contexts. The opt-in is explicit because the cross-tab cookie sharing it implies is a meaningful posture change. |
 | `HEADLESS` | `1` | Set to `0` to launch Chromium with a visible UI instead of headless (requires a display — typically paired with `USE_XVFB=1` in Docker) |
 | `CHROME_PATH` | unset | Absolute path to a Chrome/Chromium executable. When unset, nodriver auto-detects from default install locations |
 | `USE_XVFB` | `0` | Docker image only — set to `1` to start an Xvfb virtual display and run Chromium non-headless inside it. Implies `HEADLESS=0`. |
@@ -102,6 +103,8 @@ For multi-step interaction, create a tab, drive it, then delete it.
 | `POST /tabs/{id}/type` | Type into a selector. Body: `{selector, text}`. |
 | `POST /tabs/{id}/eval` | Evaluate JS in the page. Body: `{js}` → `{result}`. |
 | `POST /tabs/{id}/wait` | Wait for a selector and/or network idle. Body: `{selector?, network_idle?, timeout_ms?}`. |
+| `GET /tabs/{id}/resources` | List captured network responses for the tab. Each entry: `{request_id, url, status, mime_type, resource_type, encoded_size}`. |
+| `GET /tabs/{id}/resources/{request_id}` | Retrieve the response body bytes with the original `Content-Type`. Returns 404 if the entry was pruned (e.g. on main-frame navigation), 410 if Chrome has already evicted the body. |
 
 ### Downloads
 
@@ -144,6 +147,24 @@ curl -o report.pdf localhost:8000/tabs/$TAB/downloads/$DID
 # clean up
 curl -X DELETE localhost:8000/tabs/$TAB
 ```
+
+### Resources
+
+Every tab tracks the metadata of every HTTP response Chrome sees (HTML, CSS, JS, images, fonts, XHR, etc.) via the CDP `Network` domain. Bodies are not copied into passe-partout — they live in Chrome's network process and are fetched on demand. Chrome drops bodies tied to a previous main-frame loader on top-level navigation, so capture before navigating away.
+
+```bash
+TAB=$(curl -s -X POST localhost:8000/tabs -H 'content-type: application/json' \
+           -d '{"url":"https://example.com"}' | jq .id)
+
+# list every response on the page
+curl localhost:8000/tabs/$TAB/resources | jq
+
+# pick a request_id from the list and pull its bytes
+RID=...
+curl -o asset.bin localhost:8000/tabs/$TAB/resources/$RID
+```
+
+Per-tab metadata is pruned when the main frame navigates: only entries from the current loader (plus worker-served responses with no loader id) remain.
 
 ### Health
 

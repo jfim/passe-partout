@@ -109,6 +109,15 @@ class WaitRequest(BaseModel):
     timeout_ms: int | None = None
 
 
+class ResourceSummary(BaseModel):
+    request_id: str
+    url: str
+    status: int
+    mime_type: str
+    resource_type: str
+    encoded_size: int
+
+
 class HealthResponse(BaseModel):
     ok: bool
     browser: str
