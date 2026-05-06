@@ -11,8 +11,8 @@ Some sites (Cloudflare, paywalls, JS-only rendering) reject plain HTTP clients. 
 ### Docker (recommended)
 
 ```bash
-docker pull ghcr.io/jfim/passe-partout:0.1
-docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.1
+docker pull ghcr.io/jfim/passe-partout:0.3
+docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.3
 ```
 
 The image listens on `0.0.0.0:8000`, runs Chromium headless under tini as a non-root user, and exposes a `/healthz` healthcheck.
@@ -24,12 +24,12 @@ docker run --rm -p 8000:8000 \
     -v /path/to/ext1:/extensions/ext1 \
     -v /path/to/ext2:/extensions/ext2 \
     -e UNPACKED_EXTENSION_DIRS=/extensions/ext1:/extensions/ext2 \
-    ghcr.io/jfim/passe-partout:0.1
+    ghcr.io/jfim/passe-partout:0.3
 ```
 
 To run Chromium under a virtual display instead of headless (better for some extensions and bot-detection bypasses), set `USE_XVFB=1`:
 
-    docker run --rm -p 8000:8000 -e USE_XVFB=1 ghcr.io/jfim/passe-partout:0.1
+    docker run --rm -p 8000:8000 -e USE_XVFB=1 ghcr.io/jfim/passe-partout:0.3
 
 ### From source
 
