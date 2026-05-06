@@ -25,6 +25,8 @@ class BrowserPool:
         browser_args: list[str] = ["--no-sandbox"]
         if self.cfg.extension_dirs:
             browser_args.append("--load-extension=" + ",".join(self.cfg.extension_dirs))
+            browser_args.append("--disable-features=DisableLoadExtensionCommandLineSwitch")
+            browser_args.append("--enable-extension-developer-mode")
         start_kwargs: dict = {"browser_args": browser_args, "headless": self.cfg.headless}
         if self.cfg.chrome_path:
             start_kwargs["browser_executable_path"] = self.cfg.chrome_path
@@ -51,6 +53,12 @@ class BrowserPool:
             self._active += 1
             browser = self._browser
         assert browser is not None
+        # In shared-profile mode, return a regular tab in the default profile so
+        # --load-extension extensions are active (Chrome disables them in incognito,
+        # and the "Allow in incognito" toggle isn't persisted because nodriver mints
+        # a fresh user-data-dir each launch). Tabs share cookies/storage in this mode.
+        if self.cfg.shared_profile:
+            return await browser.get(url=url, new_tab=True)
         return await browser.create_context(url=url, new_window=True)
 
     async def close_context(self, tab: uc.Tab) -> None:

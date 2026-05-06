@@ -26,14 +26,21 @@ class DownloadRecord:
 
 
 class DownloadCoordinator:
-    """Owns per-tab download directories and CDP download event plumbing.
+    """Owns download directories and CDP download event plumbing.
 
-    Each tab gets a directory under <root_dir>/passe-partout/tab-<tab_id>/
-    where Chromium writes downloaded files (named by their CDP guid).
+    Two layouts depending on cfg.shared_profile:
+
+    * isolated mode: each tab gets <root_dir>/passe-partout/tab-<tab_id>/, scoped via
+      its real ``browser_context_id`` to ``Browser.setDownloadBehavior``.
+    * shared mode: all tabs share <root_dir>/passe-partout/shared/. Chrome rejects the
+      implicit default context id, so behavior is set browser-wide. Files are still
+      uniquely identified because ``allowAndName`` names each file by its CDP guid.
+      Per-tab cleanup walks ``_tab_lookup`` and unlinks only that tab's guids.
     """
 
-    def __init__(self, root_dir: str) -> None:
+    def __init__(self, root_dir: str, shared_profile: bool = False) -> None:
         self.root = Path(root_dir) / "passe-partout"
+        self.shared_profile = shared_profile
         # guid -> tab_id, populated in downloadWillBegin handler so progress events can be routed.
         self._tab_lookup: dict[str, int] = {}
         self._registry = None  # injected by app.py via set_registry()
@@ -43,6 +50,8 @@ class DownloadCoordinator:
         self._registry = registry
 
     def tab_dir(self, tab_id: int) -> Path:
+        if self.shared_profile:
+            return self.root / "shared"
         return self.root / f"tab-{tab_id}"
 
     def ensure_tab_dir(self, tab_id: int) -> Path:
@@ -51,6 +60,20 @@ class DownloadCoordinator:
         return d
 
     def cleanup_tab_dir(self, tab_id: int) -> None:
+        if self.shared_profile:
+            # Shared dir is reused across tabs; only remove this tab's downloads (by guid).
+            shared = self.tab_dir(tab_id)
+            for guid, tid in self._tab_lookup.items():
+                if tid != tab_id:
+                    continue
+                f = shared / guid
+                try:
+                    f.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
+            return
         d = self.tab_dir(tab_id)
         if d.exists():
             shutil.rmtree(d, ignore_errors=True)
@@ -171,8 +194,13 @@ class DownloadCoordinator:
         tab.add_handler(uc.cdp.page.FrameNavigated, _on_frame_navigated)
         await tab.send(uc.cdp.page.enable())
 
-        # Pass browser_context_id so behavior applies to incognito/isolated contexts.
-        browser_context_id = tab.target.browser_context_id if tab.target else None
+        # In isolated mode, scope the behavior to the tab's real browser_context_id (created
+        # via Target.createBrowserContext) so each tab gets its own download path. In shared
+        # mode, all tabs live in the default browser context whose implicit id Chrome rejects
+        # for setDownloadBehavior; we set the behavior browser-wide. That's safe because
+        # `allowAndName` names files by guid (globally unique) and every shared-mode tab uses
+        # the same shared dir, so concurrent downloads don't collide on disk.
+        browser_context_id = self._scoped_context_id(tab)
         await tab.send(
             uc.cdp.browser.set_download_behavior(
                 behavior="allowAndName",
@@ -182,8 +210,13 @@ class DownloadCoordinator:
             )
         )
 
+    def _scoped_context_id(self, tab: uc.Tab):
+        if self.shared_profile:
+            return None
+        return tab.target.browser_context_id if tab.target else None
+
     async def cancel(self, tab: uc.Tab, guid: str) -> None:
-        browser_context_id = tab.target.browser_context_id if tab.target else None
+        browser_context_id = self._scoped_context_id(tab)
         await tab.send(
             uc.cdp.browser.cancel_download(guid=guid, browser_context_id=browser_context_id)
         )

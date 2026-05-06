@@ -38,6 +38,7 @@ def test_overrides(monkeypatch, tmp_path):
     monkeypatch.setenv("IDLE_CHROME_SHUTDOWN_SECONDS", "120")
     monkeypatch.setenv("AUTH_TOKEN", "secret")
     monkeypatch.setenv("UNPACKED_EXTENSION_DIRS", f"{ext_a}:{ext_b}")
+    monkeypatch.setenv("SHARED_PROFILE", "1")
     monkeypatch.setenv("CHROME_PATH", "/opt/chrome/chrome")
     cfg = Config.from_env()
     assert cfg.host == "0.0.0.0"
@@ -47,6 +48,7 @@ def test_overrides(monkeypatch, tmp_path):
     assert cfg.idle_chrome_shutdown_seconds == 120
     assert cfg.auth_token == "secret"
     assert cfg.extension_dirs == [str(ext_a), str(ext_b)]
+    assert cfg.shared_profile is True
     assert cfg.chrome_path == "/opt/chrome/chrome"
 
 
@@ -54,6 +56,22 @@ def test_extension_dir_must_exist(monkeypatch):
     monkeypatch.setenv("UNPACKED_EXTENSION_DIRS", "/nonexistent/path")
     with pytest.raises(ValueError, match="not a directory"):
         Config.from_env()
+
+
+def test_extension_dirs_require_shared_profile(monkeypatch, tmp_path):
+    ext = tmp_path / "ext"
+    ext.mkdir()
+    monkeypatch.setenv("UNPACKED_EXTENSION_DIRS", str(ext))
+    monkeypatch.delenv("SHARED_PROFILE", raising=False)
+    with pytest.raises(ValueError, match="SHARED_PROFILE"):
+        Config.from_env()
+
+
+def test_shared_profile_default_off(monkeypatch):
+    monkeypatch.delenv("SHARED_PROFILE", raising=False)
+    monkeypatch.delenv("UNPACKED_EXTENSION_DIRS", raising=False)
+    cfg = Config.from_env()
+    assert cfg.shared_profile is False
 
 
 def test_download_dir_default_is_tmp(monkeypatch):

@@ -34,6 +34,10 @@ The service exposes a FastAPI app that drives a single shared Chromium instance 
 
 Per-tab TTL defaults to `IDLE_TAB_CLOSE_SECONDS` and can be overridden per request via `ttl_seconds`. Two distinct timers exist and should not be conflated: `IDLE_TAB_CLOSE_SECONDS` (per-tab inactivity) vs `IDLE_CHROME_SHUTDOWN_SECONDS` (whole-browser shutdown when zero tabs remain). `DOWNLOAD_DIR` (default `/tmp`) sets the base directory for downloaded files.
 
+`SHARED_PROFILE=1` opts every tab into the default Chrome profile (cookies/storage not isolated between callers) instead of each getting its own incognito-style context. Defaults to `0`. Required when `UNPACKED_EXTENSION_DIRS` is non-empty — Chrome doesn't run `--load-extension` extensions in incognito contexts, so `Config.from_env` aborts with a `ValueError` if extensions are configured but `SHARED_PROFILE` isn't on. The opt-in is explicit (not auto-inferred from `UNPACKED_EXTENSION_DIRS`) because the cross-tab cookie sharing it implies is a meaningful security/privacy posture change.
+
+In shared mode the download coordinator stops using per-tab subdirectories and points every tab at `<DOWNLOAD_DIR>/passe-partout/shared/`. Concurrent downloads still don't collide because `Browser.setDownloadBehavior` is set to `allowAndName`, which makes Chrome write each file as `<dir>/<guid>` (CDP guids are globally unique). `cleanup_tab_dir` walks `_tab_lookup` and unlinks only that tab's guids instead of `rmtree`-ing the shared directory.
+
 Auth is a single bearer token (`AUTH_TOKEN`) enforced by middleware; `/healthz` is exempt so Docker's healthcheck works without it.
 
 ## Testing notes

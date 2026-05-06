@@ -69,7 +69,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         app.state.cfg = cfg
         app.state.pool = state_pool
         app.state.registry = TabRegistry()
-        app.state.coord = DownloadCoordinator(root_dir=cfg.download_dir)
+        app.state.coord = DownloadCoordinator(
+            root_dir=cfg.download_dir, shared_profile=cfg.shared_profile
+        )
         app.state.coord.set_registry(app.state.registry)
         app.state.sweep_once = sweep_once
 
