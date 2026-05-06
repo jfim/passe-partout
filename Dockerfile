@@ -1,11 +1,18 @@
 # syntax=docker/dockerfile:1.7
 FROM python:3.12-slim-bookworm
 
-# Chrome for Testing — Google's automation-friendly stable build. Pinned because
-# CfT releases bump weekly and we want reproducible images. Bump the build arg
-# (and re-test) to track upstream stable. Only linux64 is published, so the image
-# is implicitly amd64. Catalog: https://googlechromelabs.github.io/chrome-for-testing/
-ARG CHROME_FOR_TESTING_VERSION=148.0.7778.97
+# Chrome for Testing — Google's automation-friendly Chrome build.
+# Two modes:
+#   * CHANNEL (default): resolve the channel's latest version from the official
+#     last-known-good catalog at build time. Channels: Stable | Beta | Dev | Canary.
+#   * VERSION: pin to an exact version. When set, takes precedence over CHANNEL.
+# Caveat: Docker's layer cache keys off the RUN command text and build ARGs, not
+# the resolved URL — so a channel-based rebuild will happily reuse a stale CfT
+# layer. Pass `--no-cache` (or bump VERSION) when you want fresh.
+# Only linux64 is published, so the image is implicitly amd64.
+# Catalog: https://googlechromelabs.github.io/chrome-for-testing/
+ARG CHROME_FOR_TESTING_CHANNEL=Stable
+ARG CHROME_FOR_TESTING_VERSION=
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -56,12 +63,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # stable hard-blocks --load-extension regardless of feature flags, breaking
 # UNPACKED_EXTENSION_DIRS. CfT mirrors stable behavior closely but keeps the
 # automation switches honored.
-RUN curl -fsSL -o /tmp/cft.zip \
-        "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_FOR_TESTING_VERSION}/linux64/chrome-linux64.zip" \
-    && mkdir -p /opt/chrome-for-testing \
-    && unzip -q /tmp/cft.zip -d /opt/chrome-for-testing \
-    && rm /tmp/cft.zip \
-    && /opt/chrome-for-testing/chrome-linux64/chrome --version
+RUN set -eu; \
+    if [ -n "${CHROME_FOR_TESTING_VERSION}" ]; then \
+        url="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_FOR_TESTING_VERSION}/linux64/chrome-linux64.zip"; \
+        echo "Pinned CfT ${CHROME_FOR_TESTING_VERSION} → ${url}"; \
+    else \
+        catalog="https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"; \
+        url=$(curl -fsSL "${catalog}" | python3 -c 'import json,sys,os; \
+ch=os.environ["CHROME_FOR_TESTING_CHANNEL"]; \
+d=json.load(sys.stdin)["channels"][ch]; \
+print(next(x["url"] for x in d["downloads"]["chrome"] if x["platform"]=="linux64"))'); \
+        echo "Resolved CfT channel=${CHROME_FOR_TESTING_CHANNEL} → ${url}"; \
+    fi; \
+    curl -fsSL -o /tmp/cft.zip "${url}"; \
+    mkdir -p /opt/chrome-for-testing; \
+    unzip -q /tmp/cft.zip -d /opt/chrome-for-testing; \
+    rm /tmp/cft.zip; \
+    /opt/chrome-for-testing/chrome-linux64/chrome --version
 
 # uv for dependency install.
 RUN --mount=type=cache,target=/root/.cache/uv \

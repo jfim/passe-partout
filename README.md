@@ -15,7 +15,20 @@ docker pull ghcr.io/jfim/passe-partout:0.3
 docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.3
 ```
 
-The image listens on `0.0.0.0:8000`, runs Chrome for Testing headless under tini as a non-root user, and exposes a `/healthz` healthcheck. Chrome for Testing is bundled instead of Chromium because Google Chrome stable rejects `--load-extension` (breaking `UNPACKED_EXTENSION_DIRS`); CfT mirrors stable behavior closely while keeping the automation switches honored. The version is pinned via the `CHROME_FOR_TESTING_VERSION` build arg in the Dockerfile.
+The image listens on `0.0.0.0:8000`, runs Chrome for Testing headless under tini as a non-root user, and exposes a `/healthz` healthcheck. Chrome for Testing is bundled instead of Chromium because Google Chrome stable rejects `--load-extension` (breaking `UNPACKED_EXTENSION_DIRS`); CfT mirrors stable behavior closely while keeping the automation switches honored.
+
+The Chrome version is selected at build time via two build args:
+
+- `CHROME_FOR_TESTING_CHANNEL` (default `Stable`) — resolves the latest version of the named channel (`Stable`, `Beta`, `Dev`, or `Canary`) from the [last-known-good catalog](https://googlechromelabs.github.io/chrome-for-testing/) at build time.
+- `CHROME_FOR_TESTING_VERSION` (default empty) — when set, pins to an exact version and ignores the channel. Use this for reproducible builds.
+
+Channel-based builds rely on Docker's layer cache, which keys off the RUN command and ARG values, **not** the resolved download URL. To force a refresh after upstream bumps, rebuild with `--no-cache` (or set `CHROME_FOR_TESTING_VERSION` to pin):
+
+```bash
+docker build --no-cache -t passe-partout .                        # latest Stable
+docker build --build-arg CHROME_FOR_TESTING_CHANNEL=Beta -t ... . # latest Beta
+docker build --build-arg CHROME_FOR_TESTING_VERSION=148.0.7778.97 -t ... .  # pinned
+```
 
 To load unpacked Chromium extensions, mount each as a subdirectory of `/extensions` and point `UNPACKED_EXTENSION_DIRS` at them (colon-separated):
 
