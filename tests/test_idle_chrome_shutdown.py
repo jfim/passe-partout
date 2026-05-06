@@ -100,6 +100,66 @@ async def test_shutdown_disabled_when_zero(patched_uc_start):
     assert pool._browser is None
 
 
+async def test_stop_if_idle_when_browser_running_and_active_zero(patched_uc_start):
+    cfg = Config(idle_chrome_shutdown_seconds=0)
+    pool = BrowserPool(cfg)
+
+    tab = await pool.create_context("about:blank")
+    await pool.close_context(tab)
+    browser = pool._browser
+    assert browser is not None
+
+    stopped, active = await pool.stop_if_idle()
+    assert (stopped, active) == (True, 0)
+    assert browser.stopped is True
+    assert pool._browser is None
+
+
+async def test_stop_if_idle_refuses_when_active_nonzero(patched_uc_start):
+    cfg = Config(idle_chrome_shutdown_seconds=0)
+    pool = BrowserPool(cfg)
+
+    tab = await pool.create_context("about:blank")
+    browser = pool._browser
+
+    stopped, active = await pool.stop_if_idle()
+    assert stopped is False
+    assert active == 1
+    assert browser.stopped is False
+    assert pool._browser is browser
+
+    await pool.close_context(tab)
+    await pool.stop()
+
+
+async def test_stop_if_idle_when_already_down(patched_uc_start):
+    cfg = Config(idle_chrome_shutdown_seconds=0)
+    pool = BrowserPool(cfg)
+    # Browser was never started.
+    stopped, active = await pool.stop_if_idle()
+    # No browser to stop, but no tabs either — caller can treat this as success.
+    assert (stopped, active) == (False, 0)
+    assert pool._browser is None
+
+
+async def test_stop_if_idle_cancels_pending_idle_task(patched_uc_start):
+    cfg = Config(idle_chrome_shutdown_seconds=10)
+    pool = BrowserPool(cfg)
+
+    tab = await pool.create_context("about:blank")
+    await pool.close_context(tab)
+    # Idle shutdown is queued (10s away).
+    assert pool._idle_task is not None
+    idle_task = pool._idle_task
+
+    stopped, active = await pool.stop_if_idle()
+    assert (stopped, active) == (True, 0)
+    assert pool._idle_task is None
+    # Yield once so the cancellation propagates and the task settles.
+    await asyncio.sleep(0)
+    assert idle_task.cancelled() or idle_task.done()
+
+
 async def test_lazy_restart_after_shutdown(patched_uc_start):
     cfg = Config(idle_chrome_shutdown_seconds=1)
     pool = BrowserPool(cfg)

@@ -118,6 +118,20 @@ class ResourceSummary(BaseModel):
     encoded_size: int
 
 
+class BrowserInfo(BaseModel):
+    running: bool
+    tab_count: int
+    headless: bool
+    shared_profile: bool
+    extension_dirs: list[str]
+    chrome_path: str | None = None
+
+
+class BrowserShutdownResponse(BaseModel):
+    ok: bool
+    stopped: bool  # True iff Chromium was running and we just stopped it
+
+
 class HealthResponse(BaseModel):
     ok: bool
     browser: str

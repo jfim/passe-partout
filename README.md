@@ -166,6 +166,12 @@ curl -o asset.bin localhost:8000/tabs/$TAB/resources/$RID
 
 Per-tab metadata is pruned when the main frame navigates: only entries from the current loader (plus worker-served responses with no loader id) remain.
 
+### Browser lifecycle
+
+`GET /browser` → `{running, tab_count, headless, shared_profile, extension_dirs, chrome_path}`. Reports current Chromium state and the static config it was launched under.
+
+`DELETE /browser` → 200 `{ok, stopped}` if Chromium got torn down (or was already down — idempotent), 409 `{error: "tabs_open", detail: ...}` if any tab is still tracked. Use when you need to discard accumulated cookies/storage in shared-profile mode (where there is no per-tab isolation): close all tabs, then `DELETE /browser`. The next `POST /tabs` lazily restarts Chromium with a fresh user-data-dir.
+
 ### Health
 
 `GET /healthz` → `{ok, browser, tabs}`. Used by the Docker `HEALTHCHECK`; not subject to `AUTH_TOKEN`.

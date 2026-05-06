@@ -41,6 +41,8 @@ In shared mode the download coordinator stops using per-tab subdirectories and p
 
 Auth is a single bearer token (`AUTH_TOKEN`) enforced by middleware; `/healthz` is exempt so Docker's healthcheck works without it.
 
+`DELETE /browser` force-stops Chromium iff `registry.count() == 0`, returning 409 otherwise. The check-and-stop is race-safe via `BrowserPool.stop_if_idle`, which inspects `_active` and stops under a single `_lock` acquisition (a racing `create_context` either bumps `_active` first or runs after teardown and lazily restarts). `GET /browser` is a static config snapshot (`BrowserInfo`) — `running`, `tab_count`, `headless`, `shared_profile`, `extension_dirs`, `chrome_path`.
+
 ## Testing notes
 
 - `tests/conftest.py` provides a session-scoped `browser_pool` fixture that launches a real Chromium — most tests touch it. `client` and `client_with_auth` build the FastAPI app over an in-memory ASGI transport (httpx), reusing the shared pool.

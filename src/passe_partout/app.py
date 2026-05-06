@@ -12,6 +12,8 @@ from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
 from passe_partout.downloads import DownloadCoordinator
 from passe_partout.models import (
+    BrowserInfo,
+    BrowserShutdownResponse,
     ClickRequest,
     CreateTabRequest,
     CreateTabResponse,
@@ -119,6 +121,54 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             browser="running" if running else "down",
             tabs=registry.count(),
         )
+
+    @app.get("/browser", response_model=BrowserInfo)
+    async def get_browser():
+        pool = app.state.pool
+        registry = app.state.registry
+        cfg_now = app.state.cfg
+        return BrowserInfo(
+            running=pool is not None and pool._browser is not None,
+            tab_count=registry.count(),
+            headless=cfg_now.headless,
+            shared_profile=cfg_now.shared_profile,
+            extension_dirs=list(cfg_now.extension_dirs),
+            chrome_path=cfg_now.chrome_path,
+        )
+
+    @app.delete("/browser", response_model=BrowserShutdownResponse)
+    async def delete_browser():
+        # Force-close Chromium iff no tabs are open. Useful in shared-profile mode
+        # where there's no per-tab isolation, so a fresh browser/profile is the only
+        # way to discard accumulated cookies and state. Returns 200 if Chromium got
+        # stopped (or was already down), 409 if any tab is still tracked. The
+        # active-count check and the stop happen under the same lock in
+        # BrowserPool.stop_if_idle, so a racing POST /tabs either lands first (and we
+        # refuse) or runs after teardown and lazily restarts.
+        pool = app.state.pool
+        registry = app.state.registry
+        async with registry.mu:
+            tabs_open = registry.count()
+        if tabs_open > 0:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": "tabs_open",
+                    "detail": f"{tabs_open} tab(s) still open; close them first",
+                },
+            )
+        stopped, active = await pool.stop_if_idle()
+        if active > 0:
+            # Lost the race: a tab creation slipped in after our registry check but
+            # before stop_if_idle acquired the pool lock.
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": "tabs_open",
+                    "detail": f"{active} pending context(s); retry",
+                },
+            )
+        return BrowserShutdownResponse(ok=True, stopped=stopped)
 
     @app.get("/tabs", response_model=list[TabSummary])
     async def list_tabs():

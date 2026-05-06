@@ -39,6 +39,27 @@ class BrowserPool:
                 self._idle_task = None
             await self._stop_browser_locked()
 
+    async def stop_if_idle(self) -> tuple[bool, int]:
+        """Stop Chromium iff no contexts are active. Returns ``(stopped, active_count)``.
+
+        Both the active-count check and the stop happen under ``self._lock`` so a
+        racing ``create_context`` either bumps ``_active`` first (and we refuse to
+        stop) or runs after we've torn down (and lazily restarts the browser).
+        ``stopped`` is True when we actually shut Chromium down; False either when
+        ``_active > 0`` (caller should retry later) or when the browser was already
+        down (callers can treat that as success). The two cases are distinguishable
+        via ``active_count``.
+        """
+        async with self._lock:
+            if self._active > 0:
+                return False, self._active
+            if self._idle_task is not None:
+                self._idle_task.cancel()
+                self._idle_task = None
+            was_running = self._browser is not None
+            await self._stop_browser_locked()
+            return was_running, 0
+
     async def _stop_browser_locked(self) -> None:
         if self._browser is not None:
             self._browser.stop()
