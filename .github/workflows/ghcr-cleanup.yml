@@ -11,18 +11,15 @@ jobs:
     permissions:
       packages: write
     steps:
-      - name: Delete untagged versions
-        uses: actions/delete-package-versions@v5
+      # dataaxiom/ghcr-cleanup-action understands multi-arch images: the
+      # platform-specific manifests referenced by a tagged multi-arch index
+      # are NOT treated as "untagged" and are preserved. The previous
+      # actions/delete-package-versions step deleted them, leaving every tag
+      # (latest, master, 0.x, ...) pointing at missing manifests and breaking
+      # `docker pull` everywhere it was consumed.
+      - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          package-name: passe-partout
-          package-type: container
-          delete-only-untagged-versions: true
-          min-versions-to-keep: 0
-
-      - name: Prune old sha-tagged versions
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: passe-partout
-          package-type: container
-          min-versions-to-keep: 10
-          ignore-versions: '^(latest|master|main|v\d+.*|\d+\.\d+)$'
+          package: passe-partout
+          delete-untagged: true
+          keep-n-tagged: 10
+          exclude-tags: latest,master,main,v*,*.*,*.*.*
