@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio as _asyncio
 import base64
+import hmac
 from contextlib import asynccontextmanager
 
 import nodriver as uc
@@ -104,7 +105,8 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         token = cfg.auth_token
         if token and request.url.path != "/healthz":
             header = request.headers.get("authorization", "")
-            if header != f"Bearer {token}":
+            expected = f"Bearer {token}"
+            if not hmac.compare_digest(header, expected):
                 return JSONResponse(
                     status_code=401,
                     content={"error": "unauthorized", "detail": "invalid or missing token"},
