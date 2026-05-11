@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -12,7 +12,7 @@ class Config:
     idle_tab_close_seconds: int = 300
     idle_chrome_shutdown_seconds: int = 300
     auth_token: str | None = None
-    extension_dirs: list[str] = field(default_factory=list)
+    extension_dirs: tuple[str, ...] = ()
     headless: bool = True
     chrome_path: str | None = None
     download_dir: str = "/tmp"
@@ -26,7 +26,7 @@ class Config:
     @classmethod
     def from_env(cls) -> Config:
         raw_dirs = os.environ.get("UNPACKED_EXTENSION_DIRS", "")
-        ext_dirs = [p for p in raw_dirs.split(":") if p]
+        ext_dirs = tuple(p for p in raw_dirs.split(":") if p)
         for p in ext_dirs:
             if not os.path.isdir(p):
                 raise ValueError(f"UNPACKED_EXTENSION_DIRS entry is not a directory: {p}")
