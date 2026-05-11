@@ -22,7 +22,7 @@ def test_defaults(monkeypatch):
     assert cfg.idle_tab_close_seconds == 300
     assert cfg.idle_chrome_shutdown_seconds == 300
     assert cfg.auth_token is None
-    assert cfg.extension_dirs == []
+    assert cfg.extension_dirs == ()
     assert cfg.chrome_path is None
 
 
@@ -47,7 +47,7 @@ def test_overrides(monkeypatch, tmp_path):
     assert cfg.idle_tab_close_seconds == 60
     assert cfg.idle_chrome_shutdown_seconds == 120
     assert cfg.auth_token == "secret"
-    assert cfg.extension_dirs == [str(ext_a), str(ext_b)]
+    assert cfg.extension_dirs == (str(ext_a), str(ext_b))
     assert cfg.shared_profile is True
     assert cfg.chrome_path == "/opt/chrome/chrome"
 
