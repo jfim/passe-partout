@@ -134,8 +134,6 @@ class BrowserShutdownResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     ok: bool
-    browser: str
-    tabs: int
 
 
 class ErrorBody(BaseModel):

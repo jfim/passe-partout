@@ -115,14 +115,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
 
     @app.get("/healthz", response_model=HealthResponse)
     async def healthz():
-        pool = app.state.pool
-        registry = app.state.registry
-        running = pool is not None and pool._browser is not None
-        return HealthResponse(
-            ok=True,
-            browser="running" if running else "down",
-            tabs=registry.count(),
-        )
+        return HealthResponse(ok=True)
 
     @app.get("/browser", response_model=BrowserInfo)
     async def get_browser():
