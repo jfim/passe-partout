@@ -43,4 +43,6 @@ class NavCapture:
         try:
             await asyncio.wait_for(self._ready.wait(), timeout)
         except TimeoutError:
+            # Caller decides what missing status means — about:blank legitimately
+            # produces no ResponseReceived, while a network failure also won't.
             pass
