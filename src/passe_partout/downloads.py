@@ -11,6 +11,16 @@ import nodriver as uc
 DownloadState = Literal["in_progress", "completed", "canceled"]
 
 
+def _sanitize_filename(name: str) -> str:
+    if not name:
+        return "download"
+    # Drop path separators and control chars (incl. CR/LF) so the value can't break
+    # Content-Disposition headers or escape the download directory.
+    cleaned = "".join(c for c in name if c.isprintable() and c not in ("/", "\\"))
+    cleaned = cleaned.strip(" .")
+    return cleaned or "download"
+
+
 @dataclass
 class DownloadRecord:
     id: str  # CDP guid
@@ -94,7 +104,7 @@ class DownloadCoordinator:
             dl = DownloadRecord(
                 id=evt.guid,
                 url=evt.url,
-                filename=evt.suggested_filename,
+                filename=_sanitize_filename(evt.suggested_filename),
                 path=self.tab_dir(tab_id) / evt.guid,
                 started_at=time.time(),
                 content_type=self._pending_content_type.pop(tab_id, None),
