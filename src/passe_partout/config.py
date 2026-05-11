@@ -11,6 +11,7 @@ class Config:
     max_tabs: int = 10
     idle_tab_close_seconds: int = 300
     idle_chrome_shutdown_seconds: int = 300
+    sweeper_interval_seconds: int = 30
     auth_token: str | None = None
     extension_dirs: tuple[str, ...] = ()
     headless: bool = True
@@ -44,6 +45,7 @@ class Config:
             max_tabs=int(os.environ.get("MAX_TABS", "10")),
             idle_tab_close_seconds=int(os.environ.get("IDLE_TAB_CLOSE_SECONDS", "300")),
             idle_chrome_shutdown_seconds=int(os.environ.get("IDLE_CHROME_SHUTDOWN_SECONDS", "300")),
+            sweeper_interval_seconds=int(os.environ.get("SWEEPER_INTERVAL_SECONDS", "30")),
             auth_token=os.environ.get("AUTH_TOKEN") or None,
             extension_dirs=ext_dirs,
             headless=os.environ.get("HEADLESS", "1").lower() not in ("0", "false", "no"),

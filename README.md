@@ -62,6 +62,7 @@ uv run python -m passe_partout
 | `MAX_TABS` | `10` | Maximum number of open tabs, after which opening additional tabs will return HTTP 429 |
 | `IDLE_TAB_CLOSE_SECONDS` | `300` | Timeout after which idle tabs are closed. Can be overridden on a per-tab basis via `ttl_seconds` on creation |
 | `IDLE_CHROME_SHUTDOWN_SECONDS` | `300` | Seconds with no open tabs after which Chromium itself is shut down. Set to `0` to keep Chromium always running and start it eagerly. When non-zero, Chromium is started lazily on first request and restarted after shutdown as needed |
+| `SWEEPER_INTERVAL_SECONDS` | `30` | How often the idle-tab sweeper runs. Lower values make per-tab `ttl_seconds` more responsive at the cost of more wakeups |
 | `AUTH_TOKEN` | unset | When set, all routes except `/healthz` require `Authorization: Bearer <token>` |
 | `UNPACKED_EXTENSION_DIRS` | unset | `:`-separated paths to unpacked Chromium extensions to load at launch. Requires `SHARED_PROFILE=1`. Note: Google Chrome stable rejects `--load-extension`; point `CHROME_PATH` at Chromium or Chrome for Testing. |
 | `SHARED_PROFILE` | `0` | When `1`, every tab shares the default Chrome profile (cookies/storage are not isolated between callers). Required when `UNPACKED_EXTENSION_DIRS` is set, since Chrome doesn't enable `--load-extension` extensions in incognito-style contexts. The opt-in is explicit because the cross-tab cookie sharing it implies is a meaningful posture change. |
