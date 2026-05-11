@@ -1,3 +1,5 @@
+"""Uvicorn entry point: ``python -m passe_partout``."""
+
 from __future__ import annotations
 
 import uvicorn

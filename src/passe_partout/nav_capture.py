@@ -1,3 +1,5 @@
+"""Captures the main-frame document response (status, MIME, URL) via CDP Network."""
+
 from __future__ import annotations
 
 import asyncio

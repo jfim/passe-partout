@@ -1,3 +1,9 @@
+"""FastAPI app factory and REST route definitions.
+
+Wires together BrowserPool, TabRegistry, DownloadCoordinator, and ResourceRecorder,
+and runs the idle-tab sweeper as a background task.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -128,11 +134,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 )
         return await call_next(request)
 
-    @app.get("/healthz", response_model=HealthResponse)
+    @app.get("/healthz", response_model=HealthResponse, summary="Liveness probe")
     async def healthz():
         return HealthResponse(ok=True)
 
-    @app.get("/browser", response_model=BrowserInfo)
+    @app.get("/browser", response_model=BrowserInfo, summary="Report Chromium status and config")
     async def get_browser():
         pool = app.state.pool
         registry = app.state.registry
@@ -146,7 +152,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             chrome_path=cfg_now.chrome_path,
         )
 
-    @app.delete("/browser", response_model=BrowserShutdownResponse)
+    @app.delete(
+        "/browser",
+        response_model=BrowserShutdownResponse,
+        summary="Force-stop Chromium when no tabs are open",
+    )
     async def delete_browser():
         # Force-close Chromium iff no tabs are open. Useful in shared-profile mode
         # where there's no per-tab isolation, so a fresh browser/profile is the only
@@ -180,7 +190,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             )
         return BrowserShutdownResponse(ok=True, stopped=stopped)
 
-    @app.get("/tabs", response_model=list[TabSummary])
+    @app.get("/tabs", response_model=list[TabSummary], summary="List active tabs")
     async def list_tabs():
         registry = app.state.registry
         return [
@@ -222,7 +232,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             )
         return out
 
-    @app.post("/tabs", response_model=CreateTabResponse)
+    @app.post(
+        "/tabs",
+        response_model=CreateTabResponse,
+        summary="Open a new tab and navigate to the given URL",
+    )
     async def create_tab(req: CreateTabRequest):
         cfg_now = app.state.cfg
         registry = app.state.registry
@@ -287,7 +301,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             download=download_info,
         )
 
-    @app.delete("/tabs/{tab_id}", status_code=204)
+    @app.delete("/tabs/{tab_id}", status_code=204, summary="Close a tab")
     async def delete_tab(tab_id: int):
         registry = app.state.registry
         pool = app.state.pool
@@ -305,7 +319,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             app.state.recorder.detach_tab(tab_id)
         return Response(status_code=204)
 
-    @app.get("/tabs/{tab_id}", response_model=TabState)
+    @app.get(
+        "/tabs/{tab_id}", response_model=TabState, summary="Get a tab's URL, title, ready state"
+    )
     async def get_tab(tab_id: int):
         registry = app.state.registry
         rec = registry.get(tab_id)
@@ -327,7 +343,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         registry.touch(tab_id)
         return rec
 
-    @app.get("/tabs/{tab_id}/html")
+    @app.get("/tabs/{tab_id}/html", summary="Current document HTML")
     async def get_html(tab_id: int):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -339,7 +355,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             html = await rec.tab.get_content()
         return HTMLResponse(content=html)
 
-    @app.get("/tabs/{tab_id}/cookies")
+    @app.get("/tabs/{tab_id}/cookies", summary="Cookies visible to the tab")
     async def get_cookies(tab_id: int):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -365,7 +381,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             )
         return out
 
-    @app.get("/tabs/{tab_id}/screenshot")
+    @app.get("/tabs/{tab_id}/screenshot", summary="PNG screenshot of the viewport")
     async def get_screenshot(tab_id: int):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -377,7 +393,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             b64 = await rec.tab.send(uc.cdp.page.capture_screenshot(format_="png"))
         return Response(content=base64.b64decode(b64), media_type="image/png")
 
-    @app.get("/tabs/{tab_id}/resources", response_model=list[ResourceSummary])
+    @app.get(
+        "/tabs/{tab_id}/resources",
+        response_model=list[ResourceSummary],
+        summary="List captured network responses",
+    )
     async def list_resources(tab_id: int):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -397,7 +417,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             for r in rec.resources.values()
         ]
 
-    @app.get("/tabs/{tab_id}/resources/{request_id}")
+    @app.get("/tabs/{tab_id}/resources/{request_id}", summary="Fetch a captured response body")
     async def get_resource_body(tab_id: int, request_id: str):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -423,7 +443,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 )
         return Response(content=body, media_type=meta.mime_type or "application/octet-stream")
 
-    @app.get("/tabs/{tab_id}/downloads", response_model=list[DownloadStatus])
+    @app.get(
+        "/tabs/{tab_id}/downloads",
+        response_model=list[DownloadStatus],
+        summary="List downloads on the tab",
+    )
     async def list_downloads(tab_id: int):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -433,7 +457,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             )
         return [_download_to_status(dl) for dl in rec.downloads.values()]
 
-    @app.get("/tabs/{tab_id}/downloads/{did}/status", response_model=DownloadStatus)
+    @app.get(
+        "/tabs/{tab_id}/downloads/{did}/status",
+        response_model=DownloadStatus,
+        summary="Single download status",
+    )
     async def download_status(tab_id: int, did: str):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -449,7 +477,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             )
         return _download_to_status(dl)
 
-    @app.get("/tabs/{tab_id}/downloads/{did}")
+    @app.get("/tabs/{tab_id}/downloads/{did}", summary="Retrieve the downloaded bytes")
     async def download_bytes(tab_id: int, did: str):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -480,7 +508,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             media_type=dl.content_type or "application/octet-stream",
         )
 
-    @app.post("/tabs/{tab_id}/downloads/{did}/cancel", status_code=204)
+    @app.post(
+        "/tabs/{tab_id}/downloads/{did}/cancel",
+        status_code=204,
+        summary="Cancel an in-progress download",
+    )
     async def cancel_download(tab_id: int, did: str):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -504,7 +536,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             await coord.cancel(rec.tab, did)
         return Response(status_code=204)
 
-    @app.delete("/tabs/{tab_id}/downloads/{did}", status_code=204)
+    @app.delete(
+        "/tabs/{tab_id}/downloads/{did}",
+        status_code=204,
+        summary="Delete a download record and its file",
+    )
     async def delete_download(tab_id: int, did: str):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -536,7 +572,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         await asyncio.to_thread(_unlink_if_exists)
         return Response(status_code=204)
 
-    @app.post("/tabs/{tab_id}/goto", response_model=GotoResponse)
+    @app.post("/tabs/{tab_id}/goto", response_model=GotoResponse, summary="Navigate the tab")
     async def goto(tab_id: int, req: GotoRequest):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -576,7 +612,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             download=download_info,
         )
 
-    @app.post("/tabs/{tab_id}/click", status_code=204)
+    @app.post("/tabs/{tab_id}/click", status_code=204, summary="Click an element by selector")
     async def click(tab_id: int, req: ClickRequest):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -591,7 +627,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 )
         return Response(status_code=204)
 
-    @app.post("/tabs/{tab_id}/type", status_code=204)
+    @app.post("/tabs/{tab_id}/type", status_code=204, summary="Type into an element by selector")
     async def type_(tab_id: int, req: TypeRequest):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -606,7 +642,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 )
         return Response(status_code=204)
 
-    @app.post("/tabs/{tab_id}/eval", response_model=EvalResponse)
+    @app.post(
+        "/tabs/{tab_id}/eval", response_model=EvalResponse, summary="Evaluate JavaScript in the tab"
+    )
     async def eval_js(tab_id: int, req: EvalRequest):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -620,7 +658,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 )
         return EvalResponse(result=result)
 
-    @app.post("/tabs/{tab_id}/wait", status_code=204)
+    @app.post(
+        "/tabs/{tab_id}/wait",
+        status_code=204,
+        summary="Wait for a selector and/or network idle",
+    )
     async def wait(tab_id: int, req: WaitRequest):
         if not req.selector and not req.network_idle:
             return JSONResponse(
@@ -681,7 +723,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 )
         return Response(status_code=204)
 
-    @app.post("/fetch", response_model=FetchResponse)
+    @app.post(
+        "/fetch",
+        response_model=FetchResponse,
+        summary="One-shot: open tab, fetch HTML, close tab",
+    )
     async def fetch(req: FetchRequest):
         create_req = CreateTabRequest(url=req.url, cookies=req.cookies, ttl_seconds=req.ttl_seconds)
         created = await create_tab(create_req)

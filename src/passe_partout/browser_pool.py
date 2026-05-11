@@ -1,3 +1,10 @@
+"""Single shared Chromium process with lazy start and idle shutdown.
+
+One BrowserPool instance backs the whole app; each tab is a per-call
+``create_context`` invocation that yields an isolated incognito-style window
+(or a default-profile tab in shared mode).
+"""
+
 from __future__ import annotations
 
 import asyncio

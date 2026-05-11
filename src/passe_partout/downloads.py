@@ -1,3 +1,10 @@
+"""Per-tab download tracking and Chrome DevTools download/fetch plumbing.
+
+Routes non-HTML main-frame responses through Fetch.requestPaused so the browser
+treats them as downloads, then watches Browser.downloadWillBegin/Progress to
+populate TabRecord.downloads.
+"""
+
 from __future__ import annotations
 
 import asyncio

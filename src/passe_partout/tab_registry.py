@@ -1,3 +1,5 @@
+"""In-memory tab record store with per-tab locks and TTL-based idle eviction."""
+
 from __future__ import annotations
 
 import asyncio
