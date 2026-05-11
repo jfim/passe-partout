@@ -69,7 +69,7 @@ uv run python -m passe_partout
 | `HEADLESS` | `1` | Set to `0` to launch Chromium with a visible UI instead of headless (requires a display — typically paired with `USE_XVFB=1` in Docker) |
 | `CHROME_PATH` | unset (set to the bundled Chrome for Testing in the Docker image) | Absolute path to a Chrome/Chromium executable. When unset, nodriver auto-detects from default install locations. Note: Google Chrome stable rejects `--load-extension` regardless of feature flags — point this at Chromium or Chrome for Testing if you need extensions. |
 | `USE_XVFB` | `0` | Docker image only — set to `1` to start an Xvfb virtual display and run Chromium non-headless inside it. Implies `HEADLESS=0`. |
-| `DOWNLOAD_DIR` | `/tmp` | Base directory for browser downloads. Files are stored under `<DOWNLOAD_DIR>/passe-partout/tab-<id>/` and removed when the tab closes. |
+| `DOWNLOAD_DIR` | `/tmp` | Base directory for browser downloads. Files are stored under `<DOWNLOAD_DIR>/passe-partout/tab-<id>/` (per-tab) or `<DOWNLOAD_DIR>/passe-partout/shared/` when `SHARED_PROFILE=1`, and removed when the tab closes. |
 
 ## API
 
