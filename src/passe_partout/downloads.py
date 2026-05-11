@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 import time
 from dataclasses import dataclass
@@ -69,24 +70,26 @@ class DownloadCoordinator:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def cleanup_tab_dir(self, tab_id: int) -> None:
+    async def cleanup_tab_dir(self, tab_id: int) -> None:
         if self.shared_profile:
             # Shared dir is reused across tabs; only remove this tab's downloads (by guid).
             shared = self.tab_dir(tab_id)
-            for guid, tid in self._tab_lookup.items():
-                if tid != tab_id:
-                    continue
-                f = shared / guid
-                try:
-                    f.unlink()
-                except FileNotFoundError:
-                    pass
-                except OSError:
-                    pass
+            guids = [guid for guid, tid in self._tab_lookup.items() if tid == tab_id]
+
+            def _unlink_all() -> None:
+                for guid in guids:
+                    try:
+                        (shared / guid).unlink()
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        pass
+
+            await asyncio.to_thread(_unlink_all)
             return
         d = self.tab_dir(tab_id)
         if d.exists():
-            shutil.rmtree(d, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, d, ignore_errors=True)
 
     async def attach_tab(self, tab_id: int, tab: uc.Tab) -> None:
         """Configure Chromium to route downloads for this tab to its dir.
@@ -232,7 +235,7 @@ class DownloadCoordinator:
         )
 
     async def detach_tab(self, tab_id: int) -> None:
-        self.cleanup_tab_dir(tab_id)
+        await self.cleanup_tab_dir(tab_id)
         stale_guids = [guid for guid, tid in self._tab_lookup.items() if tid == tab_id]
         for guid in stale_guids:
             del self._tab_lookup[guid]
