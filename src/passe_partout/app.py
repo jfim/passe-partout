@@ -690,12 +690,6 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         rec = registry.get(tid)
         try:
             async with rec.lock:
-                deadline = asyncio.get_event_loop().time() + 10.0
-                while asyncio.get_event_loop().time() < deadline:
-                    ready = await rec.tab.evaluate("document.readyState")
-                    if ready == "complete":
-                        break
-                    await asyncio.sleep(0.05)
                 html = await rec.tab.get_content()
             return FetchResponse(
                 status=created.status,
