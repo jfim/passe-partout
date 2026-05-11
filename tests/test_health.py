@@ -1,10 +1,7 @@
 async def test_healthz_ok(client):
     r = await client.get("/healthz")
     assert r.status_code == 200
-    body = r.json()
-    assert body["ok"] is True
-    assert body["browser"] == "running"
-    assert body["tabs"] == 0
+    assert r.json() == {"ok": True}
 
 
 async def test_auth_required_when_token_set(client_with_auth):
