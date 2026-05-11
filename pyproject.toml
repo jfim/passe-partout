@@ -1,7 +1,7 @@
 [project]
 name = "passe-partout"
 version = "0.1.0"
-description = "HTTP service that fetches web pages through a real Chromium browser to bypass bot walls and paywalls."
+description = "HTTP service that drives a real Chromium browser through a REST API: stateful tabs, JS evaluation, downloads, resource capture, and one-shot fetches that bypass bot walls and paywalls."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
