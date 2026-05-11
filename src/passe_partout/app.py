@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio as _asyncio
+import asyncio
 import base64
 import hmac
 from contextlib import asynccontextmanager
@@ -56,14 +56,12 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     recorder.detach_tab(tid)
 
     async def sweeper_loop():
-        import asyncio as _aio
-
         while True:
             try:
                 await sweep_once()
             except Exception:
                 pass
-            await _aio.sleep(30)
+            await asyncio.sleep(30)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -84,16 +82,14 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         app.state.recorder.set_registry(app.state.registry)
         app.state.sweep_once = sweep_once
 
-        import asyncio as _aio
-
-        sweeper_task = _aio.create_task(sweeper_loop())
+        sweeper_task = asyncio.create_task(sweeper_loop())
         try:
             yield
         finally:
             sweeper_task.cancel()
             try:
                 await sweeper_task
-            except _aio.CancelledError:
+            except asyncio.CancelledError:
                 pass
             if owns_pool and state_pool is not None:
                 await state_pool.stop()
@@ -264,7 +260,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 )
                 final_url = dl_first.url  # spec requires the origin URL, not about:blank
                 break
-            await _asyncio.sleep(0.025)
+            await asyncio.sleep(0.025)
 
         return CreateTabResponse(
             id=rec.id,
@@ -545,7 +541,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             if diff:
                 new_dl = rec.downloads[next(iter(diff))]
                 break
-            await _asyncio.sleep(0.025)
+            await asyncio.sleep(0.025)
 
         final_url = new_dl.url if new_dl is not None else (rec.tab.url or req.url)
         download_info = (
@@ -622,7 +618,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
 
         async def _wait_network_idle():
             inflight = 0
-            last_zero_at = _asyncio.get_event_loop().time()
+            last_zero_at = asyncio.get_event_loop().time()
 
             def _on_request(_e):
                 nonlocal inflight
@@ -632,19 +628,19 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 nonlocal inflight, last_zero_at
                 inflight = max(0, inflight - 1)
                 if inflight == 0:
-                    last_zero_at = _asyncio.get_event_loop().time()
+                    last_zero_at = asyncio.get_event_loop().time()
 
             rec.tab.add_handler(uc.cdp.network.RequestWillBeSent, _on_request)
             rec.tab.add_handler(uc.cdp.network.LoadingFinished, _on_done)
             rec.tab.add_handler(uc.cdp.network.LoadingFailed, _on_done)
             await rec.tab.send(uc.cdp.network.enable())
 
-            deadline = _asyncio.get_event_loop().time() + timeout_s
-            while _asyncio.get_event_loop().time() < deadline:
-                now = _asyncio.get_event_loop().time()
+            deadline = asyncio.get_event_loop().time() + timeout_s
+            while asyncio.get_event_loop().time() < deadline:
+                now = asyncio.get_event_loop().time()
                 if inflight == 0 and (now - last_zero_at) >= 0.5:
                     return
-                await _asyncio.sleep(0.05)
+                await asyncio.sleep(0.05)
             raise TimeoutError()
 
         async with rec.lock:
@@ -654,7 +650,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     tasks.append(_wait_selector())
                 if req.network_idle:
                     tasks.append(_wait_network_idle())
-                await _asyncio.wait_for(_asyncio.gather(*tasks), timeout=timeout_s)
+                await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout_s)
             except TimeoutError:
                 return JSONResponse(
                     status_code=408, content={"error": "timeout", "detail": "wait timed out"}
@@ -679,12 +675,12 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         rec = registry.get(tid)
         try:
             async with rec.lock:
-                deadline = _asyncio.get_event_loop().time() + 10.0
-                while _asyncio.get_event_loop().time() < deadline:
+                deadline = asyncio.get_event_loop().time() + 10.0
+                while asyncio.get_event_loop().time() < deadline:
                     ready = await rec.tab.evaluate("document.readyState")
                     if ready == "complete":
                         break
-                    await _asyncio.sleep(0.05)
+                    await asyncio.sleep(0.05)
                 html = await rec.tab.get_content()
             return FetchResponse(
                 status=created.status,
