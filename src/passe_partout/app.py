@@ -38,6 +38,22 @@ from passe_partout.resources import ResourceRecorder
 from passe_partout.tab_registry import TabRegistry
 
 
+async def _wait_for_first_download(rec, baseline: set[str] | None = None):
+    """Briefly poll for a download that appeared after ``baseline`` (~0.5s).
+
+    Returns the first new ``DownloadRecord`` found, or ``None`` if none arrived.
+    Used by both ``create_tab`` and ``goto`` to attach an optional ``download``
+    field to the response without forcing the caller to poll.
+    """
+    base: set[str] = baseline if baseline is not None else set()
+    for _ in range(20):
+        diff = set(rec.downloads.keys()) - base
+        if diff:
+            return rec.downloads[next(iter(diff))]
+        await asyncio.sleep(0.025)
+    return None
+
+
 async def _sweep_once(app: FastAPI) -> None:
     registry = app.state.registry
     pool = app.state.pool
@@ -254,18 +270,14 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 content={"error": "browser_error", "detail": str(e)},
             )
 
-        # Briefly poll for a download record triggered by the navigation.
         final_url = tab.url or req.url
         download_info = None
-        for _ in range(20):  # up to ~0.5s
-            if rec.downloads:
-                dl_first = next(iter(rec.downloads.values()))
-                download_info = DownloadInfo(
-                    id=dl_first.id, filename=dl_first.filename, size_bytes=dl_first.size_bytes
-                )
-                final_url = dl_first.url  # spec requires the origin URL, not about:blank
-                break
-            await asyncio.sleep(0.025)
+        dl_first = await _wait_for_first_download(rec)
+        if dl_first is not None:
+            download_info = DownloadInfo(
+                id=dl_first.id, filename=dl_first.filename, size_bytes=dl_first.size_bytes
+            )
+            final_url = dl_first.url  # spec requires the origin URL, not about:blank
 
         return CreateTabResponse(
             id=rec.id,
@@ -550,14 +562,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         status = rec.nav.status if rec.nav and rec.nav.status is not None else 200
         ctype = rec.nav.mime_type if rec.nav else None
 
-        new_dl = None
-        for _ in range(20):
-            diff = set(rec.downloads.keys()) - pre_existing
-            if diff:
-                new_dl = rec.downloads[next(iter(diff))]
-                break
-            await asyncio.sleep(0.025)
-
+        new_dl = await _wait_for_first_download(rec, baseline=pre_existing)
         final_url = new_dl.url if new_dl is not None else (rec.tab.url or req.url)
         download_info = (
             DownloadInfo(id=new_dl.id, filename=new_dl.filename, size_bytes=new_dl.size_bytes)
