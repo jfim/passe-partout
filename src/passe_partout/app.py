@@ -237,6 +237,8 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             nav.reset()
             await tab.get(req.url)
             await nav.wait()
+            if nav.status is None and req.url.lower().startswith(("http://", "https://")):
+                raise RuntimeError(f"no response captured for {req.url}")
         except Exception as e:
             if rec is not None:
                 registry.remove(rec.id)
@@ -535,6 +537,12 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 await rec.tab.get(req.url)
                 if rec.nav is not None:
                     await rec.nav.wait()
+                if (
+                    rec.nav is not None
+                    and rec.nav.status is None
+                    and req.url.lower().startswith(("http://", "https://"))
+                ):
+                    raise RuntimeError(f"no response captured for {req.url}")
             except Exception as e:
                 return JSONResponse(
                     status_code=502, content={"error": "browser_error", "detail": str(e)}
