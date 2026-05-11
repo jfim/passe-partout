@@ -38,30 +38,32 @@ from passe_partout.resources import ResourceRecorder
 from passe_partout.tab_registry import TabRegistry
 
 
+async def _sweep_once(app: FastAPI) -> None:
+    registry = app.state.registry
+    pool = app.state.pool
+    coord = app.state.coord
+    recorder = app.state.recorder
+    for tid in registry.idle_ids():
+        rec = registry.remove(tid)
+        if rec is not None:
+            try:
+                await pool.close_context(rec.tab)
+            finally:
+                await coord.detach_tab(tid)
+                recorder.detach_tab(tid)
+
+
+async def _sweeper_loop(app: FastAPI) -> None:
+    while True:
+        try:
+            await _sweep_once(app)
+        except Exception:
+            pass
+        await asyncio.sleep(30)
+
+
 def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
     state_pool = browser_pool
-
-    async def sweep_once():
-        registry = app.state.registry
-        pool = app.state.pool
-        coord = app.state.coord
-        recorder = app.state.recorder
-        for tid in registry.idle_ids():
-            rec = registry.remove(tid)
-            if rec is not None:
-                try:
-                    await pool.close_context(rec.tab)
-                finally:
-                    await coord.detach_tab(tid)
-                    recorder.detach_tab(tid)
-
-    async def sweeper_loop():
-        while True:
-            try:
-                await sweep_once()
-            except Exception:
-                pass
-            await asyncio.sleep(30)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -80,9 +82,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         app.state.coord.set_registry(app.state.registry)
         app.state.recorder = ResourceRecorder()
         app.state.recorder.set_registry(app.state.registry)
-        app.state.sweep_once = sweep_once
+        app.state.sweep_once = lambda: _sweep_once(app)
 
-        sweeper_task = asyncio.create_task(sweeper_loop())
+        sweeper_task = asyncio.create_task(_sweeper_loop(app))
         try:
             yield
         finally:
