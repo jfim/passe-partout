@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
@@ -39,7 +39,7 @@ class Cookie(BaseModel):
     expires: float | None = None
     http_only: bool | None = Field(default=None, alias="httpOnly")
     secure: bool | None = None
-    same_site: str | None = Field(default=None, alias="sameSite")
+    same_site: Literal["Strict", "Lax", "None"] | None = Field(default=None, alias="sameSite")
 
     model_config = {"populate_by_name": True}
 
@@ -73,9 +73,9 @@ class DownloadStatus(BaseModel):
     id: str
     url: str
     filename: str
-    state: str  # "in_progress" | "completed" | "canceled"
+    state: Literal["in_progress", "completed", "canceled"]
     bytes_received: int
-    size_bytes: int  # -1 when unknown
+    size_bytes: int | None = None
     started_at: float
     completed_at: float | None
 

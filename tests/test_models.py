@@ -25,18 +25,17 @@ def test_create_tab_response_with_download():
     assert r.download.size_bytes == 1024
 
 
-def test_download_status_unknown_size_is_minus_one():
+def test_download_status_unknown_size_is_none():
     s = DownloadStatus(
         id="abc",
         url="http://x/",
         filename="x.zip",
         state="in_progress",
         bytes_received=0,
-        size_bytes=-1,
         started_at=1.0,
         completed_at=None,
     )
-    assert s.size_bytes == -1
+    assert s.size_bytes is None
     assert s.completed_at is None
 
 

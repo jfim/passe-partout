@@ -184,7 +184,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             filename=dl.filename,
             state=dl.state,
             bytes_received=dl.bytes_received,
-            size_bytes=dl.size_bytes,
+            size_bytes=dl.size_bytes if dl.size_bytes >= 0 else None,
             started_at=dl.started_at,
             completed_at=dl.completed_at,
         )
