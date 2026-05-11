@@ -511,11 +511,15 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     await coord.cancel(rec.tab, did)
                 except Exception:
                     pass
-        try:
-            if dl.path.exists():
-                dl.path.unlink()
-        except OSError:
-            pass
+
+        def _unlink_if_exists() -> None:
+            try:
+                if dl.path.exists():
+                    dl.path.unlink()
+            except OSError:
+                pass
+
+        await asyncio.to_thread(_unlink_if_exists)
         return Response(status_code=204)
 
     @app.post("/tabs/{tab_id}/goto", response_model=GotoResponse)
