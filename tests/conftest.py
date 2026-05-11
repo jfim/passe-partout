@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 import pytest_asyncio
-from aiohttp import web
+from aiohttp import test_utils, web
 
 from passe_partout.app import build_app
 from passe_partout.browser_pool import BrowserPool
@@ -75,11 +75,10 @@ async def fixture_server():
     app.router.add_get("/slow.bin", slow_binary_handler)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "127.0.0.1", 0)
+    port = test_utils.unused_port()
+    site = web.TCPSite(runner, "127.0.0.1", port)
     await site.start()
-    port = site._server.sockets[0].getsockname()[1]
-    base = f"http://127.0.0.1:{port}"
-    yield base
+    yield f"http://127.0.0.1:{port}"
     await runner.cleanup()
 
 
@@ -94,9 +93,8 @@ async def browser_pool():
         await pool.stop()
 
 
-@pytest_asyncio.fixture(loop_scope="session")
-async def client(browser_pool):
-    cfg = Config()
+async def _make_client(browser_pool, auth_token: str | None):
+    cfg = Config(auth_token=auth_token)
     app = build_app(cfg=cfg, browser_pool=browser_pool)
     transport = httpx.ASGITransport(app=app)
     async with app.router.lifespan_context(app):
@@ -105,10 +103,12 @@ async def client(browser_pool):
 
 
 @pytest_asyncio.fixture(loop_scope="session")
+async def client(browser_pool):
+    async for c in _make_client(browser_pool, auth_token=None):
+        yield c
+
+
+@pytest_asyncio.fixture(loop_scope="session")
 async def client_with_auth(browser_pool):
-    cfg = Config(auth_token="secret123")
-    app = build_app(cfg=cfg, browser_pool=browser_pool)
-    transport = httpx.ASGITransport(app=app)
-    async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c, "secret123"
+    async for c in _make_client(browser_pool, auth_token="secret123"):
+        yield c, "secret123"
