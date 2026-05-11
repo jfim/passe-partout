@@ -119,7 +119,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         registry = app.state.registry
         cfg_now = app.state.cfg
         return BrowserInfo(
-            running=pool is not None and pool._browser is not None,
+            running=pool is not None and pool.is_running,
             tab_count=registry.count(),
             headless=cfg_now.headless,
             shared_profile=cfg_now.shared_profile,

@@ -15,6 +15,10 @@ class BrowserPool:
         self._lock = asyncio.Lock()
         self._idle_task: asyncio.Task | None = None
 
+    @property
+    def is_running(self) -> bool:
+        return self._browser is not None
+
     async def start(self) -> None:
         async with self._lock:
             await self._ensure_started_locked()
