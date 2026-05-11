@@ -29,7 +29,7 @@ class _FakeBrowser:
 
 
 @pytest.fixture
-def patched_uc_start(monkeypatch):
+def fake_nodriver(monkeypatch):
     started: list[_FakeBrowser] = []
 
     async def _fake_start(browser_args=None, headless=True):
@@ -43,14 +43,14 @@ def patched_uc_start(monkeypatch):
     return started
 
 
-async def test_lazy_start_does_not_launch_until_first_context(patched_uc_start):
+async def test_lazy_start_does_not_launch_until_first_context(fake_nodriver):
     cfg = Config(idle_chrome_shutdown_seconds=300)
     pool = BrowserPool(cfg)
     assert pool._browser is None
-    assert patched_uc_start == []
+    assert fake_nodriver == []
 
 
-async def test_idle_shutdown_after_last_context_closes(patched_uc_start):
+async def test_idle_shutdown_after_last_context_closes(fake_nodriver):
     cfg = Config(idle_chrome_shutdown_seconds=1)
     pool = BrowserPool(cfg)
 
@@ -67,7 +67,7 @@ async def test_idle_shutdown_after_last_context_closes(patched_uc_start):
     assert pool._browser is None
 
 
-async def test_new_request_cancels_idle_shutdown(patched_uc_start):
+async def test_new_request_cancels_idle_shutdown(fake_nodriver):
     cfg = Config(idle_chrome_shutdown_seconds=2)
     pool = BrowserPool(cfg)
 
@@ -87,7 +87,7 @@ async def test_new_request_cancels_idle_shutdown(patched_uc_start):
     await pool.stop()
 
 
-async def test_shutdown_disabled_when_zero(patched_uc_start):
+async def test_shutdown_disabled_when_zero(fake_nodriver):
     cfg = Config(idle_chrome_shutdown_seconds=0)
     pool = BrowserPool(cfg)
 
@@ -100,7 +100,7 @@ async def test_shutdown_disabled_when_zero(patched_uc_start):
     assert pool._browser is None
 
 
-async def test_stop_if_idle_when_browser_running_and_active_zero(patched_uc_start):
+async def test_stop_if_idle_when_browser_running_and_active_zero(fake_nodriver):
     cfg = Config(idle_chrome_shutdown_seconds=0)
     pool = BrowserPool(cfg)
 
@@ -115,7 +115,7 @@ async def test_stop_if_idle_when_browser_running_and_active_zero(patched_uc_star
     assert pool._browser is None
 
 
-async def test_stop_if_idle_refuses_when_active_nonzero(patched_uc_start):
+async def test_stop_if_idle_refuses_when_active_nonzero(fake_nodriver):
     cfg = Config(idle_chrome_shutdown_seconds=0)
     pool = BrowserPool(cfg)
 
@@ -132,7 +132,7 @@ async def test_stop_if_idle_refuses_when_active_nonzero(patched_uc_start):
     await pool.stop()
 
 
-async def test_stop_if_idle_when_already_down(patched_uc_start):
+async def test_stop_if_idle_when_already_down(fake_nodriver):
     cfg = Config(idle_chrome_shutdown_seconds=0)
     pool = BrowserPool(cfg)
     # Browser was never started.
@@ -142,7 +142,7 @@ async def test_stop_if_idle_when_already_down(patched_uc_start):
     assert pool._browser is None
 
 
-async def test_stop_if_idle_cancels_pending_idle_task(patched_uc_start):
+async def test_stop_if_idle_cancels_pending_idle_task(fake_nodriver):
     cfg = Config(idle_chrome_shutdown_seconds=10)
     pool = BrowserPool(cfg)
 
@@ -160,7 +160,7 @@ async def test_stop_if_idle_cancels_pending_idle_task(patched_uc_start):
     assert idle_task.cancelled() or idle_task.done()
 
 
-async def test_lazy_restart_after_shutdown(patched_uc_start):
+async def test_lazy_restart_after_shutdown(fake_nodriver):
     cfg = Config(idle_chrome_shutdown_seconds=1)
     pool = BrowserPool(cfg)
 
