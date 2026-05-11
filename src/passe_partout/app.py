@@ -54,12 +54,13 @@ async def _sweep_once(app: FastAPI) -> None:
 
 
 async def _sweeper_loop(app: FastAPI) -> None:
+    interval = app.state.cfg.sweeper_interval_seconds
     while True:
         try:
             await _sweep_once(app)
         except Exception:
             pass
-        await asyncio.sleep(30)
+        await asyncio.sleep(interval)
 
 
 def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
