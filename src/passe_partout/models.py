@@ -106,7 +106,7 @@ class EvalResponse(BaseModel):
 class WaitRequest(BaseModel):
     selector: str | None = None
     network_idle: bool | None = None
-    timeout_ms: int | None = None
+    timeout_ms: int | None = Field(default=None, ge=0, le=60_000)
 
 
 class ResourceSummary(BaseModel):
