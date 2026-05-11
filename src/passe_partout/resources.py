@@ -1,3 +1,9 @@
+"""Per-tab HTTP response metadata recorder.
+
+Subscribes to CDP Network events to track every response Chrome sees; bodies are
+not copied and are fetched on demand via Network.getResponseBody.
+"""
+
 from __future__ import annotations
 
 import base64
