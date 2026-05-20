@@ -4,6 +4,12 @@ Pure function over a TabRecord + the current main-frame loader id. No CDP
 interaction here — bodies are taken from ResourceRecord.body (populated in
 COPY/COPY_AND_RETAIN modes); when missing, the response record is emitted
 with empty payload and ``WARC-Truncated: unspecified``.
+
+By default only resources matching the current main-frame loader_id are
+emitted (plus worker-served responses with empty loader_id). Callers in
+COPY_AND_RETAIN mode pass ``include_all_loaders=True`` to dump every
+retained resource on the tab, which spans prior navigations, iframes, and
+other non-current loaders.
 """
 
 from __future__ import annotations
@@ -28,7 +34,13 @@ def _headers_to_list(h: dict[str, str]) -> list[tuple[str, str]]:
     return [(k, v) for k, v in h.items()]
 
 
-def _select(resources: dict[str, ResourceRecord], current_loader_id: str) -> list[ResourceRecord]:
+def _select(
+    resources: dict[str, ResourceRecord],
+    current_loader_id: str,
+    include_all_loaders: bool = False,
+) -> list[ResourceRecord]:
+    if include_all_loaders:
+        return list(resources.values())
     out: list[ResourceRecord] = []
     for r in resources.values():
         # Empty loader_id = worker-served response; keep across loaders.
@@ -43,6 +55,7 @@ def build_warc(
     current_loader_id: str,
     hostname: str,
     body_overrides: dict[str, bytes] | None = None,
+    include_all_loaders: bool = False,
 ) -> bytes:
     writer = BufferWARCWriter(gzip=False)
 
@@ -58,7 +71,7 @@ def build_warc(
     )
     writer.write_record(info_record)
 
-    for r in _select(rec.resources, current_loader_id):
+    for r in _select(rec.resources, current_loader_id, include_all_loaders=include_all_loaders):
         warc_date = _iso(r.captured_at) if r.captured_at else _iso(rec.created_at)
 
         # Request record

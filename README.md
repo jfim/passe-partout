@@ -199,7 +199,7 @@ In `copy` and `copy_and_retain` modes, `GET /tabs/{id}/resources/{request_id}` r
 
 ### WARC export
 
-`GET /tabs/{id}/warc` returns a [WARC 1.1](https://iipc.github.io/warc-specifications/) archive of the resources captured for the current main-frame loader, suitable for replay in tools like [pywb](https://github.com/webrecorder/pywb) or [replayweb.page](https://replayweb.page). The archive contains one `warcinfo` record followed by paired `request` / `response` records for each tracked resource.
+`GET /tabs/{id}/warc` returns a [WARC 1.1](https://iipc.github.io/warc-specifications/) archive of the resources captured on the tab, suitable for replay in tools like [pywb](https://github.com/webrecorder/pywb) or [replayweb.page](https://replayweb.page). The archive contains one `warcinfo` record followed by paired `request` / `response` records for each tracked resource. Scope depends on capture mode: `no_copy` and `copy` archive only the current main-frame loader, while `copy_and_retain` archives every resource ever retained on the tab (prior navigations, iframes, etc.).
 
 ```bash
 TAB=$(curl -s -X POST localhost:8000/tabs -H 'content-type: application/json' \
@@ -209,7 +209,7 @@ curl -o page.warc localhost:8000/tabs/$TAB/warc
 curl -X DELETE localhost:8000/tabs/$TAB
 ```
 
-Scope is the current loader; to archive a multi-page session, open the tab with `capture_mode: "copy_and_retain"` and call `/warc` before closing. `no_copy` tabs work too — bodies are fetched live from Chrome at export time, and any Chrome has already evicted ship as zero-length responses with `WARC-Truncated: unspecified`. The archive is uncompressed (`application/warc`, not `.warc.gz`); gzip downstream if you need it. `/fetch` does not produce WARC — use the stateful tab flow.
+To archive a multi-page session — clicking through links, walking through redirect interstitials, capturing iframe traffic — open the tab with `capture_mode: "copy_and_retain"` and call `/warc` before closing; one tab = one session = one WARC. `no_copy` tabs work too — bodies are fetched live from Chrome at export time, and any Chrome has already evicted ship as zero-length responses with `WARC-Truncated: unspecified`. The archive is uncompressed (`application/warc`, not `.warc.gz`); gzip downstream if you need it. `/fetch` does not produce WARC — use the stateful tab flow.
 
 ### Browser lifecycle
 

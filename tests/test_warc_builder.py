@@ -90,6 +90,22 @@ def test_resources_from_other_loaders_are_skipped():
     assert "http://example.com/old" not in response_urls
 
 
+def test_include_all_loaders_keeps_previous_loader_resources():
+    keep = _make_record(request_id="keep", loader_id="loader-A")
+    prev = _make_record(request_id="prev", loader_id="loader-B", url="http://example.com/old")
+    tab = _make_tab_record([keep, prev])
+    blob = build_warc(
+        tab, current_loader_id="loader-A", hostname="testhost", include_all_loaders=True
+    )
+    response_urls = [
+        r.rec_headers.get_header("WARC-Target-URI")
+        for r in ArchiveIterator(io.BytesIO(blob))
+        if r.rec_type == "response"
+    ]
+    assert "http://example.com/page" in response_urls
+    assert "http://example.com/old" in response_urls
+
+
 def test_missing_body_emits_truncated_response():
     r = _make_record(body=None)
     tab = _make_tab_record([r])
