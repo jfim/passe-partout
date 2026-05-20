@@ -64,3 +64,25 @@ async def test_warc_endpoint_works_for_no_copy_mode(client, fixture_server):
         assert any(r.rec_type == "response" for r in records)
     finally:
         await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_endpoint_does_not_buffer_bodies_in_no_copy_mode(client, fixture_server):
+    """Regression: GET /warc must not populate r.body for NO_COPY tabs."""
+    tab_id = await _open(client, f"{fixture_server}/warc_page.html", mode="no_copy")
+    try:
+        await asyncio.sleep(0.8)
+        # Sanity: before the WARC export, no bodies are buffered.
+        app = client._transport.app
+        rec = app.state.registry.get(tab_id)
+        assert all(r.body is None for r in rec.resources.values())
+
+        resp = await client.get(f"/tabs/{tab_id}/warc")
+        assert resp.status_code == 200
+
+        # After the WARC export, NO_COPY records must STILL have no buffered body.
+        assert all(r.body is None for r in rec.resources.values()), (
+            "GET /warc leaked bodies onto NO_COPY records"
+        )
+    finally:
+        await _close(client, tab_id)

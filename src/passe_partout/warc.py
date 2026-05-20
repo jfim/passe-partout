@@ -28,9 +28,7 @@ def _headers_to_list(h: dict[str, str]) -> list[tuple[str, str]]:
     return [(k, v) for k, v in h.items()]
 
 
-def _select(
-    resources: dict[str, ResourceRecord], current_loader_id: str
-) -> list[ResourceRecord]:
+def _select(resources: dict[str, ResourceRecord], current_loader_id: str) -> list[ResourceRecord]:
     out: list[ResourceRecord] = []
     for r in resources.values():
         # Empty loader_id = worker-served response; keep across loaders.
@@ -40,7 +38,12 @@ def _select(
     return out
 
 
-def build_warc(rec: TabRecord, current_loader_id: str, hostname: str) -> bytes:
+def build_warc(
+    rec: TabRecord,
+    current_loader_id: str,
+    hostname: str,
+    body_overrides: dict[str, bytes] | None = None,
+) -> bytes:
     writer = BufferWARCWriter(gzip=False)
 
     info_record = writer.create_warcinfo_record(
@@ -88,11 +91,16 @@ def build_warc(rec: TabRecord, current_loader_id: str, hostname: str) -> bytes:
             "WARC-Date": warc_date,
             "WARC-Concurrent-To": req_record.rec_headers.get_header("WARC-Record-ID"),
         }
-        if r.body is None:
+        body = None
+        if body_overrides is not None and r.request_id in body_overrides:
+            body = body_overrides[r.request_id]
+        elif r.body is not None:
+            body = r.body
+        if body is None:
             warc_headers["WARC-Truncated"] = "unspecified"
             payload_bytes = b""
         else:
-            payload_bytes = r.body
+            payload_bytes = body
         resp_record = writer.create_warc_record(
             uri=r.url,
             record_type="response",

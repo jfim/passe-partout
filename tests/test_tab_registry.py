@@ -17,9 +17,7 @@ def test_register_defaults_capture_mode_to_no_copy():
 
 def test_register_accepts_explicit_capture_mode():
     reg = TabRegistry()
-    rec = reg.register(
-        tab=_DummyTab(), ttl_seconds=60, capture_mode=CaptureMode.COPY_AND_RETAIN
-    )
+    rec = reg.register(tab=_DummyTab(), ttl_seconds=60, capture_mode=CaptureMode.COPY_AND_RETAIN)
     assert rec.capture_mode is CaptureMode.COPY_AND_RETAIN
 
 
