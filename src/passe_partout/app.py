@@ -482,6 +482,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 current_loader,
                 socket.gethostname(),
                 body_overrides=body_overrides,
+                include_all_loaders=(mode == CaptureMode.COPY_AND_RETAIN),
             )
         filename = f"tab-{tab_id}-{current_loader or 'noloader'}.warc"
         return Response(

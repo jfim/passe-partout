@@ -67,6 +67,34 @@ async def test_warc_endpoint_works_for_no_copy_mode(client, fixture_server):
 
 
 @pytest.mark.asyncio
+async def test_warc_endpoint_retains_previous_navigation_in_copy_and_retain(client, fixture_server):
+    """COPY_AND_RETAIN: WARC must include resources from prior navigations on the tab."""
+    tab_id = await _open(client, f"{fixture_server}/warc_page.html", mode="copy_and_retain")
+    try:
+        await asyncio.sleep(0.8)
+        # Navigate again — would create a new loader_id and prune under COPY/NO_COPY.
+        nav = await client.post(
+            f"/tabs/{tab_id}/goto", json={"url": f"{fixture_server}/normal_page.html"}
+        )
+        assert nav.status_code == 200, nav.text
+        await asyncio.sleep(0.5)
+
+        resp = await client.get(f"/tabs/{tab_id}/warc")
+        assert resp.status_code == 200, resp.text
+        urls = {
+            r.rec_headers.get_header("WARC-Target-URI")
+            for r in ArchiveIterator(io.BytesIO(resp.content))
+            if r.rec_type == "response"
+        }
+        # Both navigations and the first page's subresources should be present.
+        assert any(u.endswith("/warc_page.html") for u in urls)
+        assert any(u.endswith("/sample.png") for u in urls)
+        assert any(u.endswith("/normal_page.html") for u in urls)
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
 async def test_warc_endpoint_does_not_buffer_bodies_in_no_copy_mode(client, fixture_server):
     """Regression: GET /warc must not populate r.body for NO_COPY tabs."""
     tab_id = await _open(client, f"{fixture_server}/warc_page.html", mode="no_copy")
