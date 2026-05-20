@@ -25,6 +25,8 @@ from typing import Any
 
 import nodriver as uc
 
+from passe_partout import __version__
+
 RENDERED_TARGETS_PROFILE = (
     "http://iipc.github.io/warc-specifications/specifications/"
     "warc-rendered-targets/warc-rendered-targets-1.0/"
@@ -235,7 +237,7 @@ async def capture_rendered_payload(tab: uc.Tab, page_title: str = "") -> dict[st
     return {
         "log": {
             "version": "1.2",
-            "creator": {"name": "passe-partout", "version": "0"},
+            "creator": {"name": "passe-partout", "version": __version__},
             "pages": pages,
         }
     }
