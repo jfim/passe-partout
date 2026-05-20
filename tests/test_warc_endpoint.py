@@ -136,6 +136,98 @@ async def test_warc_endpoint_retains_previous_navigation_in_copy_and_retain(clie
 
 
 @pytest.mark.asyncio
+async def test_warc_endpoint_rendered_emits_conversion_record_with_dom_and_screenshot(
+    client, fixture_server
+):
+    import base64
+    import json
+
+    tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?rendered=1")
+        assert resp.status_code == 200, resp.text
+
+        conversions: list[tuple[dict, bytes]] = []
+        responses: list[tuple[dict, bytes]] = []
+        for r in ArchiveIterator(io.BytesIO(resp.content), no_record_parse=True):
+            headers = dict(r.rec_headers.headers)
+            body = r.content_stream().read()
+            if r.rec_type == "conversion":
+                conversions.append((headers, body))
+            elif r.rec_type == "response":
+                responses.append((headers, body))
+
+        assert len(conversions) == 1, "expected one rendered-targets conversion record"
+        conv_headers, conv_body = conversions[0]
+        assert conv_headers["Content-Type"] == "application/json"
+        assert "warc-rendered-targets" in conv_headers["WARC-Profile"]
+        main_doc_uri = f"{fixture_server}/normal_page.html"
+        main_resp = next(h for h, _ in responses if h.get("WARC-Target-URI") == main_doc_uri)
+        assert conv_headers["WARC-Refers-To"] == main_resp["WARC-Record-ID"]
+
+        payload = json.loads(conv_body)
+        pages = payload["log"]["pages"]
+        assert len(pages) >= 1
+        top = next(p for p in pages if p["_passepartout_parentFrameId"] is None)
+        dom_html = base64.b64decode(top["renderedContent"]["text"]).decode("utf-8")
+        assert "<h1>Hello</h1>" in dom_html
+        png_bytes = base64.b64decode(top["renderedElements"][0]["content"])
+        assert png_bytes.startswith(b"\x89PNG\r\n\x1a\n"), png_bytes[:8]
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_endpoint_rendered_captures_iframe_dom(client, fixture_server):
+    import base64
+    import json
+
+    tab_id = await _open(client, f"{fixture_server}/iframe_with_image.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?rendered=1")
+        assert resp.status_code == 200, resp.text
+        conv = next(
+            (dict(r.rec_headers.headers), r.content_stream().read())
+            for r in ArchiveIterator(io.BytesIO(resp.content), no_record_parse=True)
+            if r.rec_type == "conversion"
+        )
+        payload = json.loads(conv[1])
+        pages = payload["log"]["pages"]
+        # One top + at least one iframe.
+        assert len(pages) >= 2, [p["_passepartout_url"] for p in pages]
+        top = next(p for p in pages if p["_passepartout_parentFrameId"] is None)
+        children = [
+            p for p in pages if p["_passepartout_parentFrameId"] == top["_passepartout_frameId"]
+        ]
+        assert children, "expected at least one child frame entry"
+        child = children[0]
+        assert "iframe" in child["_passepartout_ownerSelector"].lower()
+        # Top has the screenshot; iframe entries do not.
+        assert "renderedElements" in top
+        assert "renderedElements" not in child
+        # Top DOM contains an <iframe> tag.
+        top_dom = base64.b64decode(top["renderedContent"]["text"]).decode("utf-8")
+        assert "<iframe" in top_dom
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_endpoint_rendered_off_by_default(client, fixture_server):
+    """No `?rendered=1` → no conversion record."""
+    tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.5)
+        resp = await client.get(f"/tabs/{tab_id}/warc")
+        types = [r.rec_type for r in ArchiveIterator(io.BytesIO(resp.content))]
+        assert "conversion" not in types
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
 async def test_warc_endpoint_does_not_buffer_bodies_in_no_copy_mode(client, fixture_server):
     """Regression: GET /warc must not populate r.body for NO_COPY tabs."""
     tab_id = await _open(client, f"{fixture_server}/warc_page.html", mode="no_copy")

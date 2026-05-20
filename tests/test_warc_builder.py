@@ -106,6 +106,60 @@ def test_include_all_loaders_keeps_previous_loader_resources():
     assert "http://example.com/old" in response_urls
 
 
+def test_rendered_payload_emits_conversion_record_linked_to_main_doc():
+    import json
+
+    main = _make_record(request_id="main", loader_id="loader-A", url="http://example.com/page")
+    tab = _make_tab_record([main])
+    payload = {
+        "log": {
+            "version": "1.2",
+            "pages": [{"id": "frame_0", "renderedContent": {"text": "PHA+aGk8L3A+"}}],
+        }
+    }
+    blob = build_warc(
+        tab,
+        current_loader_id="loader-A",
+        hostname="testhost",
+        rendered_payload=payload,
+        main_doc_request_id="main",
+        rendered_profile="http://example.com/profile",
+    )
+    # Collect (rec_type, headers-dict, body-bytes) during iteration — content_stream
+    # is sequential, you can't reread it once the iterator advances.
+    collected: list[tuple[str, dict, bytes]] = []
+    for r in ArchiveIterator(io.BytesIO(blob), no_record_parse=True):
+        collected.append((r.rec_type, dict(r.rec_headers.headers), r.content_stream().read()))
+    convs = [c for c in collected if c[0] == "conversion"]
+    assert len(convs) == 1, [c[0] for c in collected]
+    _, conv_headers, conv_body = convs[0]
+    main_resp_headers = next(
+        h
+        for t, h, _ in collected
+        if t == "response" and h.get("WARC-Target-URI") == "http://example.com/page"
+    )
+    assert conv_headers["WARC-Refers-To"] == main_resp_headers["WARC-Record-ID"]
+    assert conv_headers["WARC-Target-URI"] == "http://example.com/page"
+    assert conv_headers["WARC-Profile"] == "http://example.com/profile"
+    assert conv_headers["Content-Type"] == "application/json"
+    assert json.loads(conv_body) == payload
+
+
+def test_rendered_payload_skipped_when_main_doc_not_in_resources():
+    main = _make_record(request_id="main", loader_id="loader-A")
+    tab = _make_tab_record([main])
+    blob = build_warc(
+        tab,
+        current_loader_id="loader-A",
+        hostname="testhost",
+        rendered_payload={"log": {"version": "1.2", "pages": []}},
+        main_doc_request_id="nonexistent",
+        rendered_profile="http://example.com/profile",
+    )
+    types = [r.rec_type for r in ArchiveIterator(io.BytesIO(blob))]
+    assert "conversion" not in types
+
+
 def test_missing_body_emits_truncated_response():
     r = _make_record(body=None)
     tab = _make_tab_record([r])
