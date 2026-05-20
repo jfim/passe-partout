@@ -22,6 +22,7 @@ from typing import Any
 from warcio.statusandheaders import StatusAndHeaders
 from warcio.warcwriter import BufferWARCWriter
 
+from passe_partout import __version__
 from passe_partout.resources import ResourceRecord
 from passe_partout.tab_registry import TabRecord
 
@@ -67,7 +68,7 @@ def build_warc(
     info_record = writer.create_warcinfo_record(
         filename=f"tab-{rec.id}.warc",
         info={
-            "software": "passe-partout",
+            "software": f"passe-partout/{__version__}",
             "format": "WARC/1.1",
             "conformsTo": _WARC_SPEC_URL,
             "hostname": hostname,
