@@ -11,6 +11,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "nodriver>=0.38",
     "pydantic>=2.7",
+    "warcio>=1.7",
 ]
 
 [dependency-groups]
