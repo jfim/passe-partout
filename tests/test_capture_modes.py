@@ -42,3 +42,25 @@ async def test_request_and_response_headers_are_captured(client, fixture_server)
             assert r.captured_at > 0.0
     finally:
         await _close_tab(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_create_tab_propagates_capture_mode_to_registry(
+    client, fixture_server
+):
+    resp = await client.post(
+        "/tabs",
+        json={
+            "url": f"{fixture_server}/static.html",
+            "capture_mode": "copy_and_retain",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    tab_id = resp.json()["id"]
+    try:
+        app = client._transport.app
+        rec = app.state.registry.get(tab_id)
+        assert rec.capture_mode is CaptureMode.COPY_AND_RETAIN
+        assert app.state.recorder.mode_for(tab_id) is CaptureMode.COPY_AND_RETAIN
+    finally:
+        await _close_tab(client, tab_id)
