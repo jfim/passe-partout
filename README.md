@@ -239,6 +239,26 @@ curl localhost:8000/tabs/$TAB/html
 curl -X DELETE localhost:8000/tabs/$TAB
 ```
 
+## Development
+
+[`just`](https://github.com/casey/just) is the entry point for common tasks — install it and run `just` (or `just --list`) to see all recipes. The recipes are thin wrappers over `uv run` and `scripts/`, so you can ignore `just` and call the underlying commands directly if you prefer.
+
+```bash
+just sync           # uv sync
+just serve          # uv run python -m passe_partout
+just test           # pytest, no smoke
+just test-smoke     # pytest -m smoke
+just lint           # ruff check .
+just fmt            # ruff format .
+just release 0.4.3  # ./scripts/release.sh 0.4.3
+```
+
+## Releasing
+
+Releases are cut from `master` via `just release VERSION` (or `./scripts/release.sh VERSION` directly). The script bumps `pyproject.toml`'s version, refreshes `uv.lock`, updates the README's Docker tag examples when the `MAJOR.MINOR` floats, runs the test suite, then creates a `release: vVERSION` commit and a `vVERSION` tag and pushes both to origin. `.github/workflows/docker.yml` picks up the tag and publishes `ghcr.io/jfim/passe-partout:VERSION` plus the floating `ghcr.io/jfim/passe-partout:MAJOR.MINOR` and `:latest` tags.
+
+Pre-flight checks the script enforces: clean working tree, on `master`, `master` matches `origin/master`, target tag doesn't already exist. If any fails the script aborts before touching anything.
+
 ## License
 
 GNU AGPL 3.0
