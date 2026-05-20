@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hmac
+import socket
 from contextlib import asynccontextmanager
 
 import nodriver as uc
@@ -42,6 +43,7 @@ from passe_partout.models import (
 from passe_partout.nav_capture import NavCapture
 from passe_partout.resources import ResourceRecorder
 from passe_partout.tab_registry import TabRegistry
+from passe_partout.warc import build_warc
 
 
 async def _wait_for_first_download(rec, baseline: set[str] | None = None):
@@ -255,9 +257,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         try:
             tab = await pool.create_context("about:blank")
             ttl = req.ttl_seconds if req.ttl_seconds is not None else cfg_now.idle_tab_close_seconds
-            rec = registry.register(
-                tab=tab, ttl_seconds=ttl, capture_mode=req.capture_mode
-            )
+            rec = registry.register(tab=tab, ttl_seconds=ttl, capture_mode=req.capture_mode)
             await coord.attach_tab(rec.id, tab)
             await app.state.recorder.attach_tab(rec.id, tab, req.capture_mode)
             nav = NavCapture(tab)
@@ -444,6 +444,38 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     content={"error": "body_unavailable", "detail": str(e)},
                 )
         return Response(content=body, media_type=meta.mime_type or "application/octet-stream")
+
+    @app.get("/tabs/{tab_id}/warc", summary="WARC archive of the current page's resources")
+    async def get_warc(tab_id: int):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
+            )
+        recorder = app.state.recorder
+        current_loader = recorder.current_loader(tab_id)
+        async with rec.lock:
+            # For records whose body isn't already buffered, try a live fetch from
+            # Chrome so the WARC has payloads where it can. Failures (eviction,
+            # opaque CORS) leave body=None and build_warc marks them truncated.
+            for r in list(rec.resources.values()):
+                if r.body is not None:
+                    continue
+                if r.loader_id and r.loader_id != current_loader:
+                    continue
+                try:
+                    body, _ = await recorder.get_body(rec.tab, r.request_id)
+                    r.body = body
+                except Exception:
+                    pass
+            blob = build_warc(rec, current_loader, socket.gethostname())
+        filename = f"tab-{tab_id}-{current_loader or 'noloader'}.warc"
+        return Response(
+            content=blob,
+            media_type="application/warc",
+            headers={"content-disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.get(
         "/tabs/{tab_id}/downloads",
