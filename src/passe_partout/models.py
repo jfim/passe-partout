@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
@@ -31,6 +32,24 @@ URLStr = Annotated[str, Field(min_length=1, max_length=URL_MAX)]
 SelectorStr = Annotated[str, Field(min_length=1, max_length=SELECTOR_MAX)]
 
 
+class CaptureMode(str, Enum):  # noqa: UP042
+    """Per-tab network capture behavior.
+
+    NO_COPY (default): no body buffering; bodies fetched lazily from Chrome
+    and pruned on main-frame navigation. Today's behavior.
+
+    COPY: eagerly buffer request/response headers + bodies on loadingFinished.
+    Still pruned on main-frame navigation.
+
+    COPY_AND_RETAIN: like COPY, but resources are retained across navigations
+    for the lifetime of the tab. Caller accepts unbounded growth.
+    """
+
+    NO_COPY = "no_copy"
+    COPY = "copy"
+    COPY_AND_RETAIN = "copy_and_retain"
+
+
 class Cookie(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=COOKIE_NAME_MAX), NoControl]
     value: Annotated[str, Field(max_length=COOKIE_VALUE_MAX), NoControl]
@@ -50,6 +69,7 @@ class CreateTabRequest(BaseModel):
     url: URLStr
     cookies: list[Cookie] | None = None
     ttl_seconds: int | None = None
+    capture_mode: CaptureMode = CaptureMode.NO_COPY
 
 
 class TabSummary(BaseModel):
