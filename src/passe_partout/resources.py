@@ -5,6 +5,13 @@ In NO_COPY mode bodies are not copied (fetched on demand via Network.getResponse
 in COPY/COPY_AND_RETAIN modes bodies are pulled eagerly on loadingFinished and
 stashed on the record so WARC export and /resources/{id} remain reliable after
 Chrome would have evicted them.
+
+Redirect hops (3xx responses Chrome auto-follows) are delivered by CDP as the
+``redirect_response`` field on the *next* ``Network.requestWillBeSent`` for the
+same request_id — there is no ``responseReceived`` for a redirect. The recorder
+synthesizes a ``ResourceRecord`` for each hop, keyed ``"{request_id}:r{n}"`` to
+avoid clobbering the final entry, with ``body=None`` (CDP doesn't expose redirect
+bodies, so WARC export emits headers-only with ``WARC-Truncated: unspecified``).
 """
 
 from __future__ import annotations
@@ -108,9 +115,48 @@ class ResourceRecorder:
         # request_id -> pending RequestRecord captured at requestWillBeSent; popped
         # when the matching responseReceived fires and folded into the ResourceRecord.
         pending: dict[str, RequestRecord] = {}
+        # request_id -> number of redirect hops already synthesized. CDP reuses one
+        # request_id across an entire redirect chain, so we suffix synthesized hop
+        # keys with `:r0`, `:r1`, ... to avoid colliding with the final entry.
+        redirect_hops: dict[str, int] = {}
 
         def _on_request(evt) -> None:
             req = evt.request
+            # If this requestWillBeSent carries a redirect_response, Chrome is
+            # telling us "the previous hop on this request_id returned a 3xx; here
+            # are its headers, and I'm about to follow it." We never see a
+            # responseReceived for that hop — the response is delivered only via
+            # this field — so synthesize a ResourceRecord here. Body is left None:
+            # CDP doesn't expose redirect-hop bodies (even if RFC permits them),
+            # so the WARC writer ships these headers-only with WARC-Truncated.
+            redirect_resp = getattr(evt, "redirect_response", None)
+            if redirect_resp is not None:
+                rec = self._registry.get(tab_id) if self._registry else None
+                prev = pending.get(str(evt.request_id))
+                if rec is not None and prev is not None:
+                    hop_n = redirect_hops.get(str(evt.request_id), 0)
+                    redirect_hops[str(evt.request_id)] = hop_n + 1
+                    hop_key = f"{evt.request_id}:r{hop_n}"
+                    hop_loader = str(evt.loader_id) if evt.loader_id is not None else ""
+                    hop_record = ResourceRecord(
+                        request_id=hop_key,
+                        url=str(getattr(redirect_resp, "url", "") or prev.url),
+                        status=int(getattr(redirect_resp, "status", 0) or 0),
+                        status_text=str(getattr(redirect_resp, "status_text", "") or ""),
+                        mime_type=str(getattr(redirect_resp, "mime_type", "") or ""),
+                        resource_type=str(evt.type_),
+                        loader_id=hop_loader,
+                        response_headers=dict(getattr(redirect_resp, "headers", {}) or {}),
+                        protocol=str(getattr(redirect_resp, "protocol", "") or ""),
+                        remote_ip=str(getattr(redirect_resp, "remote_ip_address", "") or ""),
+                        remote_port=int(getattr(redirect_resp, "remote_port", 0) or 0),
+                        method=prev.method,
+                        request_headers=prev.headers,
+                        request_post_data=prev.post_data,
+                        captured_at=time.time(),
+                    )
+                    rec.resources[hop_key] = hop_record
+
             method = str(getattr(req, "method", "GET") or "GET")
             headers = dict(getattr(req, "headers", {}) or {})
             post_data: bytes | None = None
