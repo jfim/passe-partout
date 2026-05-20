@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from passe_partout.downloads import DownloadRecord
+from passe_partout.models import CaptureMode
 from passe_partout.resources import ResourceRecord
 
 
@@ -18,6 +19,7 @@ class TabRecord:
     created_at: float
     last_used_at: float
     ttl_seconds: int
+    capture_mode: CaptureMode = CaptureMode.NO_COPY
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     nav: Any = None
     downloads: dict[str, DownloadRecord] = field(default_factory=dict)
@@ -31,7 +33,12 @@ class TabRegistry:
         self._next_id: int = 1
         self._mu = asyncio.Lock()  # guards _records and _next_id
 
-    def register(self, tab: Any, ttl_seconds: int) -> TabRecord:
+    def register(
+        self,
+        tab: Any,
+        ttl_seconds: int,
+        capture_mode: CaptureMode = CaptureMode.NO_COPY,
+    ) -> TabRecord:
         now = time.time()
         rec = TabRecord(
             id=self._next_id,
@@ -39,6 +46,7 @@ class TabRegistry:
             created_at=now,
             last_used_at=now,
             ttl_seconds=ttl_seconds,
+            capture_mode=capture_mode,
         )
         self._records[rec.id] = rec
         self._next_id += 1

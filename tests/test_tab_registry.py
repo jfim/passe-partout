@@ -1,7 +1,26 @@
 import asyncio
 import time
 
+from passe_partout.models import CaptureMode
 from passe_partout.tab_registry import TabRegistry
+
+
+class _DummyTab:
+    url = "about:blank"
+
+
+def test_register_defaults_capture_mode_to_no_copy():
+    reg = TabRegistry()
+    rec = reg.register(tab=_DummyTab(), ttl_seconds=60)
+    assert rec.capture_mode is CaptureMode.NO_COPY
+
+
+def test_register_accepts_explicit_capture_mode():
+    reg = TabRegistry()
+    rec = reg.register(
+        tab=_DummyTab(), ttl_seconds=60, capture_mode=CaptureMode.COPY_AND_RETAIN
+    )
+    assert rec.capture_mode is CaptureMode.COPY_AND_RETAIN
 
 
 def test_register_assigns_monotonic_ids():
