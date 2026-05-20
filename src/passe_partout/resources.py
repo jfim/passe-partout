@@ -1,34 +1,76 @@
 """Per-tab HTTP response metadata recorder.
 
-Subscribes to CDP Network events to track every response Chrome sees; bodies are
-not copied and are fetched on demand via Network.getResponseBody.
+Subscribes to CDP Network events to track every request/response Chrome sees.
+In NO_COPY mode bodies are not copied (fetched on demand via Network.getResponseBody);
+in COPY/COPY_AND_RETAIN modes bodies are pulled eagerly on loadingFinished and
+stashed on the record so WARC export and /resources/{id} remain reliable after
+Chrome would have evicted them.
 """
 
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+import time  # noqa: F401  # used by downstream tasks (WARC export)
+from dataclasses import dataclass, field
 
 import nodriver as uc
+
+from passe_partout.models import CaptureMode  # noqa: F401  # used by downstream tasks
+
+
+@dataclass
+class RequestRecord:
+    """Transient per-request state captured at Network.requestWillBeSent.
+
+    Held in a tab-scoped dict until the matching Network.responseReceived fires,
+    at which point the relevant fields are folded into the ResourceRecord. Kept
+    around after that too for the WARC writer, which needs the original request
+    line and headers.
+    """
+
+    request_id: str
+    url: str
+    method: str
+    headers: dict[str, str]
+    post_data: bytes | None
+    started_at: float
 
 
 @dataclass
 class ResourceRecord:
     """Per-tab metadata for a single Network.responseReceived event.
 
-    Bodies are NOT stored in this record; they live in Chrome's network process
-    (enabled via Network.enable) and are pulled on demand via getResponseBody.
-    Chrome evicts these bodies when the document navigates or when its internal
-    buffer caps are hit, so callers should be ready for retrieval to fail.
+    In NO_COPY mode `body` is None and the caller fetches it on demand via
+    `Network.getResponseBody`; that may fail if Chrome has evicted it. In
+    COPY/COPY_AND_RETAIN modes `body` is populated eagerly on loadingFinished
+    (decoded from Chrome's base64 wrapping for binary responses) and survives
+    until the record itself is pruned.
     """
 
     request_id: str
     url: str
     status: int
-    mime_type: str
-    resource_type: str
-    loader_id: str  # main-frame loader at the time of the response
+    status_text: str = ""
+    mime_type: str = ""
+    resource_type: str = ""
+    loader_id: str = ""  # main-frame loader at the time of the response
     encoded_size: int = 0  # populated by Network.loadingFinished
+
+    # Always populated when the matching requestWillBeSent was seen.
+    method: str = "GET"
+    request_headers: dict[str, str] = field(default_factory=dict)
+    response_headers: dict[str, str] = field(default_factory=dict)
+    protocol: str = ""
+    remote_ip: str = ""
+    remote_port: int = 0
+    request_post_data: bytes | None = None
+
+    # Populated only in COPY / COPY_AND_RETAIN modes. Already decoded — Chrome's
+    # base64 wrapping for binary responses is unwrapped before storage.
+    body: bytes | None = None
+
+    # Wall-clock time of Network.responseReceived. Used as WARC-Date.
+    captured_at: float = 0.0
 
 
 class ResourceRecorder:
