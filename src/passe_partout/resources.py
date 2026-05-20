@@ -9,6 +9,7 @@ Chrome would have evicted them.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 from dataclasses import dataclass, field
@@ -154,6 +155,24 @@ class ResourceRecorder:
                 record.request_post_data = req_meta.post_data
             rec.resources[str(evt.request_id)] = record
 
+        async def _capture_body(request_id_str: str) -> None:
+            rec_inner = self._registry.get(tab_id) if self._registry else None
+            if rec_inner is None:
+                return
+            record = rec_inner.resources.get(request_id_str)
+            if record is None or record.body is not None:
+                return
+            try:
+                body, _ = await self.get_body(tab, request_id_str)
+            except Exception:
+                # Opaque cross-origin, too large, already evicted, etc. Leave body=None;
+                # WARC writer will emit headers with WARC-Truncated: unspecified.
+                return
+            # Re-check; the record may have been pruned while we awaited.
+            record = rec_inner.resources.get(request_id_str)
+            if record is not None:
+                record.body = body
+
         def _on_finished(evt) -> None:
             rec = self._registry.get(tab_id) if self._registry else None
             if rec is None:
@@ -161,12 +180,23 @@ class ResourceRecorder:
             r = rec.resources.get(str(evt.request_id))
             if r is not None:
                 r.encoded_size = int(evt.encoded_data_length)
+            if self._mode.get(tab_id, CaptureMode.NO_COPY) in (
+                CaptureMode.COPY,
+                CaptureMode.COPY_AND_RETAIN,
+            ):
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                loop.create_task(_capture_body(str(evt.request_id)))
 
         def _on_frame_navigated(evt) -> None:
             if evt.frame.parent_id is not None:
                 return
             new_loader = str(evt.frame.loader_id) if evt.frame.loader_id is not None else ""
             self._current_loader[tab_id] = new_loader
+            if self._mode.get(tab_id, CaptureMode.NO_COPY) == CaptureMode.COPY_AND_RETAIN:
+                return  # retention mode: keep all loaders' entries forever
             rec = self._registry.get(tab_id) if self._registry else None
             if rec is None:
                 return
