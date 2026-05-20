@@ -46,6 +46,47 @@ async def test_warc_endpoint_returns_archive_with_all_resources(client, fixture_
 
 
 @pytest.mark.asyncio
+async def test_warc_endpoint_includes_redirect_hops(client, fixture_server):
+    """A 302 → final-page chain should appear as two response records in the WARC."""
+    tab_id = await _open(client, f"{fixture_server}/redirect-to-static", mode="copy")
+    try:
+        await asyncio.sleep(0.5)
+        resp = await client.get(f"/tabs/{tab_id}/warc")
+        assert resp.status_code == 200, resp.text
+        records = [r for r in ArchiveIterator(io.BytesIO(resp.content)) if r.rec_type == "response"]
+        by_uri = {r.rec_headers.get_header("WARC-Target-URI"): r for r in records}
+
+        redirect_uri = f"{fixture_server}/redirect-to-static"
+        final_uri = f"{fixture_server}/static.html"
+        assert redirect_uri in by_uri, f"missing redirect record; saw {list(by_uri)}"
+        assert final_uri in by_uri, f"missing final record; saw {list(by_uri)}"
+
+        # The redirect hop is headers-only (Chrome doesn't expose the body for
+        # auto-followed redirects), so it ships with WARC-Truncated: unspecified.
+        assert by_uri[redirect_uri].rec_headers.get_header("WARC-Truncated") == "unspecified"
+        assert by_uri[final_uri].rec_headers.get_header("WARC-Truncated") is None
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_endpoint_includes_multi_hop_redirect_chain(client, fixture_server):
+    """A two-hop redirect chain should appear as three response records."""
+    tab_id = await _open(client, f"{fixture_server}/redirect-chain", mode="copy")
+    try:
+        await asyncio.sleep(0.5)
+        resp = await client.get(f"/tabs/{tab_id}/warc")
+        assert resp.status_code == 200
+        records = [r for r in ArchiveIterator(io.BytesIO(resp.content)) if r.rec_type == "response"]
+        uris = [r.rec_headers.get_header("WARC-Target-URI") for r in records]
+        assert f"{fixture_server}/redirect-chain" in uris
+        assert f"{fixture_server}/redirect-to-static" in uris
+        assert f"{fixture_server}/static.html" in uris
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
 async def test_warc_endpoint_404_on_unknown_tab(client):
     resp = await client.get("/tabs/999999/warc")
     assert resp.status_code == 404

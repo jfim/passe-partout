@@ -67,12 +67,20 @@ async def fixture_server():
         await resp.write_eof()
         return resp
 
+    async def redirect_handler(_request: web.Request) -> web.Response:
+        return web.Response(status=302, headers={"Location": "/static.html"})
+
+    async def redirect_chain_handler(_request: web.Request) -> web.Response:
+        return web.Response(status=302, headers={"Location": "/redirect-to-static"})
+
     app = web.Application()
     app.router.add_get("/{name}.html", html_handler)
     app.router.add_get("/binary.zip", binary_handler)
     app.router.add_get("/sample.png", png_handler)
     app.router.add_get("/data.json", json_handler)
     app.router.add_get("/slow.bin", slow_binary_handler)
+    app.router.add_get("/redirect-to-static", redirect_handler)
+    app.router.add_get("/redirect-chain", redirect_chain_handler)
     runner = web.AppRunner(app)
     await runner.setup()
     port = test_utils.unused_port()
