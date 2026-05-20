@@ -44,6 +44,8 @@ We already subscribe to `Network.responseReceived`, `Network.loadingFinished`, a
 
 Eager body capture for `COPY`/`COPY_AND_RETAIN` happens inside the existing `_on_finished` handler: when the mode is one of those two, immediately call the recorder's existing `get_body()` helper (which already decodes Chrome's base64-encoded binary responses to raw `bytes`) and store the result as `body: bytes | None` on the record. The call is wrapped — failures (opaque cross-origin, body too large, already evicted) leave `body=None` and the record still ships, with the WARC writer emitting headers and a zero-length payload (marked with `WARC-Truncated: unspecified`).
 
+`ResourceRecorder.get_body()` is updated to prefer the buffered `record.body` when present, falling back to live `Network.getResponseBody` only when it's `None`. This means the existing `GET /tabs/{id}/resources/{request_id}` endpoint becomes more reliable in `COPY` / `COPY_AND_RETAIN` modes: requests that would 410 today (Chrome evicted the body) succeed when we have a buffered copy. `NO_COPY` behavior is unchanged. No endpoint signature or response-shape changes.
+
 `_on_frame_navigated`'s prune step gets a mode check: skip pruning when the tab's mode is `COPY_AND_RETAIN`. The current-loader bookkeeping (`self._current_loader[tab_id] = new_loader`) stays in place either way so the WARC endpoint can scope to the current loader.
 
 ## Data model
