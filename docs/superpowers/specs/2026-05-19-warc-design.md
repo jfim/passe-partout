@@ -42,7 +42,7 @@ We already subscribe to `Network.responseReceived`, `Network.loadingFinished`, a
 - **`Network.requestWillBeSent`** — captures `request.method`, `request.headers`, `request.url`, `request.hasPostData`, `request.postData` (when small enough to ship inline), `request.postDataEntries` (when present), and the `Request-Id`. Stored on a new `RequestRecord` that gets paired with the `ResourceRecord` on `responseReceived`. We do *not* attempt to recover POST bodies that Chrome dropped due to size — those records ship without a request payload.
 - **Expanded `Network.responseReceived` handling** — in addition to the fields we keep today (`status`, `mime_type`, `resource_type`, `loader_id`), record `status_text`, `response.headers`, `response.protocol` (e.g. `"h2"`, `"http/1.1"`), `response.remote_ip_address`, `response.remote_port`, and `response.timing` if present. Headers are stored as the original CDP `dict[str, str]` (Chrome already normalizes them for us).
 
-Eager body capture for `COPY`/`COPY_AND_RETAIN` happens inside the existing `_on_finished` handler: when the mode is one of those two, immediately call `Network.getResponseBody` and store `body: bytes | None` plus `body_base64: bool` on the record. The call is wrapped — failures (opaque cross-origin, body too large, already evicted) leave `body=None` and the record still ships, with the WARC writer emitting headers and a zero-length payload (marked with `WARC-Truncated: unspecified`).
+Eager body capture for `COPY`/`COPY_AND_RETAIN` happens inside the existing `_on_finished` handler: when the mode is one of those two, immediately call the recorder's existing `get_body()` helper (which already decodes Chrome's base64-encoded binary responses to raw `bytes`) and store the result as `body: bytes | None` on the record. The call is wrapped — failures (opaque cross-origin, body too large, already evicted) leave `body=None` and the record still ships, with the WARC writer emitting headers and a zero-length payload (marked with `WARC-Truncated: unspecified`).
 
 `_on_frame_navigated`'s prune step gets a mode check: skip pruning when the tab's mode is `COPY_AND_RETAIN`. The current-loader bookkeeping (`self._current_loader[tab_id] = new_loader`) stays in place either way so the WARC endpoint can scope to the current loader.
 
@@ -71,9 +71,9 @@ class ResourceRecord:
     remote_port: int = 0
     request_post_data: bytes | None = None
 
-    # Populated only in COPY / COPY_AND_RETAIN:
+    # Populated only in COPY / COPY_AND_RETAIN. Already decoded — Chrome's
+    # base64 wrapping for binary responses is unwrapped before storage.
     body: bytes | None = None
-    body_base64: bool = False  # True if Chrome returned base64 (binary body)
 ```
 
 `TabRecord` gains `capture_mode: CaptureMode`. `CreateTabRequest` gains `capture_mode: CaptureMode = CaptureMode.NO_COPY`.
