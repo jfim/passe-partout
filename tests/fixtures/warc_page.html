@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+  <head><title>warc page</title></head>
+  <body>
+    <h1>warc page</h1>
+    <img id="img" src="/sample.png" width="1" height="1">
+    <pre id="out">loading</pre>
+    <script>
+      fetch('/data.json')
+        .then(r => r.text())
+        .then(t => { document.getElementById('out').textContent = t; });
+    </script>
+  </body>
+</html>

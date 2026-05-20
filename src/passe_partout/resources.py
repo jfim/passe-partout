@@ -10,7 +10,7 @@ Chrome would have evicted them.
 from __future__ import annotations
 
 import base64
-import time  # noqa: F401  # used by downstream tasks (WARC export)
+import time
 from dataclasses import dataclass, field
 
 import nodriver as uc
@@ -104,18 +104,55 @@ class ResourceRecorder:
         self._mode[tab_id] = capture_mode
         await tab.send(uc.cdp.network.enable())
 
+        # request_id -> pending RequestRecord captured at requestWillBeSent; popped
+        # when the matching responseReceived fires and folded into the ResourceRecord.
+        pending: dict[str, RequestRecord] = {}
+
+        def _on_request(evt) -> None:
+            req = evt.request
+            method = str(getattr(req, "method", "GET") or "GET")
+            headers = dict(getattr(req, "headers", {}) or {})
+            post_data: bytes | None = None
+            raw_post = getattr(req, "post_data", None)
+            if raw_post is not None:
+                if isinstance(raw_post, bytes):
+                    post_data = raw_post
+                else:
+                    post_data = str(raw_post).encode("utf-8")
+            pending[str(evt.request_id)] = RequestRecord(
+                request_id=str(evt.request_id),
+                url=str(getattr(req, "url", "") or ""),
+                method=method,
+                headers=headers,
+                post_data=post_data,
+                started_at=time.time(),
+            )
+
         def _on_response(evt) -> None:
             rec = self._registry.get(tab_id) if self._registry else None
             if rec is None:
                 return
-            rec.resources[str(evt.request_id)] = ResourceRecord(
+            resp = evt.response
+            req_meta = pending.pop(str(evt.request_id), None)
+            record = ResourceRecord(
                 request_id=str(evt.request_id),
-                url=evt.response.url,
-                status=int(evt.response.status),
-                mime_type=evt.response.mime_type or "",
+                url=resp.url,
+                status=int(resp.status),
+                status_text=str(getattr(resp, "status_text", "") or ""),
+                mime_type=resp.mime_type or "",
                 resource_type=str(evt.type_),
                 loader_id=str(evt.loader_id) if evt.loader_id is not None else "",
+                response_headers=dict(getattr(resp, "headers", {}) or {}),
+                protocol=str(getattr(resp, "protocol", "") or ""),
+                remote_ip=str(getattr(resp, "remote_ip_address", "") or ""),
+                remote_port=int(getattr(resp, "remote_port", 0) or 0),
+                captured_at=time.time(),
             )
+            if req_meta is not None:
+                record.method = req_meta.method
+                record.request_headers = req_meta.headers
+                record.request_post_data = req_meta.post_data
+            rec.resources[str(evt.request_id)] = record
 
         def _on_finished(evt) -> None:
             rec = self._registry.get(tab_id) if self._registry else None
@@ -139,6 +176,7 @@ class ResourceRecorder:
             for rid in stale:
                 del rec.resources[rid]
 
+        tab.add_handler(uc.cdp.network.RequestWillBeSent, _on_request)
         tab.add_handler(uc.cdp.network.ResponseReceived, _on_response)
         tab.add_handler(uc.cdp.network.LoadingFinished, _on_finished)
         tab.add_handler(uc.cdp.page.FrameNavigated, _on_frame_navigated)
@@ -155,9 +193,7 @@ class ResourceRecorder:
             return base64.b64decode(body), True
         return body.encode("utf-8"), False
 
-    async def get_body_for(
-        self, record: ResourceRecord, tab: uc.Tab
-    ) -> tuple[bytes, bool]:
+    async def get_body_for(self, record: ResourceRecord, tab: uc.Tab) -> tuple[bytes, bool]:
         """Returns (body_bytes, was_base64), preferring the buffered copy on the record."""
         if record.body is not None:
             return record.body, False
