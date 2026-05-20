@@ -433,7 +433,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             )
         async with rec.lock:
             try:
-                body, _ = await app.state.recorder.get_body(rec.tab, request_id)
+                body, _ = await app.state.recorder.get_body_for(meta, rec.tab)
             except Exception as e:
                 # Body may have been evicted by Chrome (navigation, buffer cap, opaque
                 # cross-origin response, etc.). Surface as 410 Gone.

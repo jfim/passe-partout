@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from passe_partout.resources import RequestRecord, ResourceRecord
+import pytest
+
+from passe_partout.resources import RequestRecord, ResourceRecord, ResourceRecorder
 
 
 def test_resource_record_defaults():
@@ -30,3 +32,27 @@ def test_request_record_minimal():
     assert rr.request_id == "abc"
     assert rr.headers["x-test"] == "1"
     assert rr.post_data == b"hello"
+
+
+class _FakeTab:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, cmd):
+        self.sent.append(cmd)
+        raise AssertionError("Network.getResponseBody must NOT be called when body is buffered")
+
+
+@pytest.mark.asyncio
+async def test_get_body_prefers_buffered_copy():
+    recorder = ResourceRecorder()
+    rec_body = b"hello world"
+    record = ResourceRecord(
+        request_id="abc",
+        url="http://x/",
+        status=200,
+        body=rec_body,
+    )
+    body, was_b64 = await recorder.get_body_for(record, _FakeTab())
+    assert body == rec_body
+    assert was_b64 is False

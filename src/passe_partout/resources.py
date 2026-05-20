@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import nodriver as uc
 
-from passe_partout.models import CaptureMode  # noqa: F401  # used by downstream tasks
+from passe_partout.models import CaptureMode
 
 
 @dataclass
@@ -76,21 +76,32 @@ class ResourceRecord:
 class ResourceRecorder:
     """Tracks Chrome Network responses per tab and fetches bodies on demand.
 
-    Subscribes to Network.responseReceived (metadata) and Network.loadingFinished
-    (final byte count) on each attached tab. On main-frame navigation we record the
-    new loader_id and prune metadata tied to older loaders, mirroring Chrome's own
-    body eviction so the dict stays bounded over a long-lived tab.
+    See module docstring for the capture-mode contract.
     """
 
     def __init__(self) -> None:
         self._registry = None  # injected by app.py
         # tab_id -> current main-frame loader_id (str). Empty until first frameNavigated.
         self._current_loader: dict[int, str] = {}
+        # tab_id -> CaptureMode chosen at attach_tab time.
+        self._mode: dict[int, CaptureMode] = {}
 
     def set_registry(self, registry) -> None:
         self._registry = registry
 
-    async def attach_tab(self, tab_id: int, tab: uc.Tab) -> None:
+    def mode_for(self, tab_id: int) -> CaptureMode:
+        return self._mode.get(tab_id, CaptureMode.NO_COPY)
+
+    def current_loader(self, tab_id: int) -> str:
+        return self._current_loader.get(tab_id, "")
+
+    async def attach_tab(
+        self,
+        tab_id: int,
+        tab: uc.Tab,
+        capture_mode: CaptureMode = CaptureMode.NO_COPY,
+    ) -> None:
+        self._mode[tab_id] = capture_mode
         await tab.send(uc.cdp.network.enable())
 
         def _on_response(evt) -> None:
@@ -115,8 +126,6 @@ class ResourceRecorder:
                 r.encoded_size = int(evt.encoded_data_length)
 
         def _on_frame_navigated(evt) -> None:
-            # Only react to top-level navigations. Subframe navigations don't evict
-            # main-frame bodies, so leaving their entries alone is correct.
             if evt.frame.parent_id is not None:
                 return
             new_loader = str(evt.frame.loader_id) if evt.frame.loader_id is not None else ""
@@ -124,9 +133,6 @@ class ResourceRecorder:
             rec = self._registry.get(tab_id) if self._registry else None
             if rec is None:
                 return
-            # Prune entries from older loaders; keep the new loader's entries (including
-            # the document responseReceived that fired just before this event) and any
-            # worker-served responses (which carry an empty loader_id).
             stale = [
                 rid for rid, r in rec.resources.items() if r.loader_id and r.loader_id != new_loader
             ]
@@ -140,8 +146,7 @@ class ResourceRecorder:
     async def get_body(self, tab: uc.Tab, request_id: str) -> tuple[bytes, bool]:
         """Returns (body_bytes, was_base64).
 
-        Raises whatever CDP raises if Chrome no longer has the body (navigation,
-        buffer eviction, opaque cross-origin response, etc.).
+        Always goes to Chrome — for buffered-body preference use ``get_body_for``.
         """
         body, base64_encoded = await tab.send(
             uc.cdp.network.get_response_body(request_id=uc.cdp.network.RequestId(request_id))
@@ -150,5 +155,14 @@ class ResourceRecorder:
             return base64.b64decode(body), True
         return body.encode("utf-8"), False
 
+    async def get_body_for(
+        self, record: ResourceRecord, tab: uc.Tab
+    ) -> tuple[bytes, bool]:
+        """Returns (body_bytes, was_base64), preferring the buffered copy on the record."""
+        if record.body is not None:
+            return record.body, False
+        return await self.get_body(tab, record.request_id)
+
     def detach_tab(self, tab_id: int) -> None:
         self._current_loader.pop(tab_id, None)
+        self._mode.pop(tab_id, None)
