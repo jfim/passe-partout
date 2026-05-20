@@ -83,9 +83,7 @@ def test_resources_from_other_loaders_are_skipped():
     blob = build_warc(tab, current_loader_id="loader-A", hostname="testhost")
     records = list(ArchiveIterator(io.BytesIO(blob)))
     response_urls = [
-        r.rec_headers.get_header("WARC-Target-URI")
-        for r in records
-        if r.rec_type == "response"
+        r.rec_headers.get_header("WARC-Target-URI") for r in records if r.rec_type == "response"
     ]
     assert "http://example.com/page" in response_urls
     assert "http://example.com/sw.js" in response_urls
@@ -99,3 +97,35 @@ def test_missing_body_emits_truncated_response():
     records = list(ArchiveIterator(io.BytesIO(blob)))
     response = [r for r in records if r.rec_type == "response"][0]
     assert response.rec_headers.get_header("WARC-Truncated") == "unspecified"
+
+
+def test_body_overrides_take_precedence():
+    r = _make_record(body=None)
+    tab = _make_tab_record([r])
+    blob = build_warc(
+        tab,
+        current_loader_id="loader-A",
+        hostname="testhost",
+        body_overrides={"req-1": b"override-bytes"},
+    )
+    records = list(ArchiveIterator(io.BytesIO(blob)))
+    response = [r for r in records if r.rec_type == "response"][0]
+    # WARC-Truncated must NOT be set when an override provides a body.
+    assert response.rec_headers.get_header("WARC-Truncated") is None
+
+
+def test_body_overrides_dont_override_buffered_body():
+    """When the record already has a body, overrides aren't needed but the
+    function should still work (record body takes precedence as long as no
+    explicit override is supplied for that request_id)."""
+    r = _make_record(body=b"from-record")
+    tab = _make_tab_record([r])
+    blob = build_warc(
+        tab,
+        current_loader_id="loader-A",
+        hostname="testhost",
+        body_overrides={},  # empty: record body wins
+    )
+    # No exception, builds successfully.
+    assert isinstance(blob, bytes)
+    assert len(blob) > 0

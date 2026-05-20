@@ -22,6 +22,7 @@ from passe_partout.downloads import DownloadCoordinator
 from passe_partout.models import (
     BrowserInfo,
     BrowserShutdownResponse,
+    CaptureMode,
     ClickRequest,
     CreateTabRequest,
     CreateTabResponse,
@@ -456,20 +457,32 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         recorder = app.state.recorder
         current_loader = recorder.current_loader(tab_id)
         async with rec.lock:
-            # For records whose body isn't already buffered, try a live fetch from
-            # Chrome so the WARC has payloads where it can. Failures (eviction,
-            # opaque CORS) leave body=None and build_warc marks them truncated.
-            for r in list(rec.resources.values()):
-                if r.body is not None:
-                    continue
-                if r.loader_id and r.loader_id != current_loader:
-                    continue
-                try:
-                    body, _ = await recorder.get_body(rec.tab, r.request_id)
-                    r.body = body
-                except Exception:
-                    pass
-            blob = build_warc(rec, current_loader, socket.gethostname())
+            # Only live-fetch bodies for records that don't already have one
+            # buffered. In NO_COPY mode we keep results in a local dict so
+            # `r.body` stays None and the /resources/{id} endpoint continues
+            # to do live fetches (preserving NO_COPY semantics). In COPY /
+            # COPY_AND_RETAIN modes the records already carry bodies — no
+            # live fetch is needed in the route at all.
+            mode = recorder.mode_for(tab_id)
+            body_overrides: dict[str, bytes] | None = None
+            if mode == CaptureMode.NO_COPY:
+                body_overrides = {}
+                for r in list(rec.resources.values()):
+                    if r.body is not None:
+                        continue
+                    if r.loader_id and r.loader_id != current_loader:
+                        continue
+                    try:
+                        body, _ = await recorder.get_body(rec.tab, r.request_id)
+                        body_overrides[r.request_id] = body
+                    except Exception:
+                        pass
+            blob = build_warc(
+                rec,
+                current_loader,
+                socket.gethostname(),
+                body_overrides=body_overrides,
+            )
         filename = f"tab-{tab_id}-{current_loader or 'noloader'}.warc"
         return Response(
             content=blob,

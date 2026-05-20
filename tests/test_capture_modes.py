@@ -45,9 +45,7 @@ async def test_request_and_response_headers_are_captured(client, fixture_server)
 
 
 @pytest.mark.asyncio
-async def test_create_tab_propagates_capture_mode_to_registry(
-    client, fixture_server
-):
+async def test_create_tab_propagates_capture_mode_to_registry(client, fixture_server):
     resp = await client.post(
         "/tabs",
         json={
@@ -68,9 +66,7 @@ async def test_create_tab_propagates_capture_mode_to_registry(
 
 @pytest.mark.asyncio
 async def test_no_copy_does_not_buffer_bodies(client, fixture_server):
-    tab_id = await _open_tab(
-        client, f"{fixture_server}/warc_page.html", CaptureMode.NO_COPY
-    )
+    tab_id = await _open_tab(client, f"{fixture_server}/warc_page.html", CaptureMode.NO_COPY)
     try:
         await asyncio.sleep(0.5)
         app = client._transport.app
@@ -82,16 +78,12 @@ async def test_no_copy_does_not_buffer_bodies(client, fixture_server):
 
 @pytest.mark.asyncio
 async def test_copy_buffers_bodies(client, fixture_server):
-    tab_id = await _open_tab(
-        client, f"{fixture_server}/warc_page.html", CaptureMode.COPY
-    )
+    tab_id = await _open_tab(client, f"{fixture_server}/warc_page.html", CaptureMode.COPY)
     try:
         await asyncio.sleep(0.8)
         app = client._transport.app
         rec = app.state.registry.get(tab_id)
-        json_records = [
-            r for r in rec.resources.values() if r.url.endswith("/data.json")
-        ]
+        json_records = [r for r in rec.resources.values() if r.url.endswith("/data.json")]
         assert json_records, "no /data.json record found"
         assert json_records[0].body == b'{"hello":"world"}'
     finally:
@@ -100,9 +92,7 @@ async def test_copy_buffers_bodies(client, fixture_server):
 
 @pytest.mark.asyncio
 async def test_copy_prunes_on_navigation(client, fixture_server):
-    tab_id = await _open_tab(
-        client, f"{fixture_server}/warc_page.html", CaptureMode.COPY
-    )
+    tab_id = await _open_tab(client, f"{fixture_server}/warc_page.html", CaptureMode.COPY)
     try:
         await asyncio.sleep(0.5)
         nav = await client.post(
@@ -120,9 +110,7 @@ async def test_copy_prunes_on_navigation(client, fixture_server):
 
 
 @pytest.mark.asyncio
-async def test_copy_and_retain_keeps_resources_across_navigation(
-    client, fixture_server
-):
+async def test_copy_and_retain_keeps_resources_across_navigation(client, fixture_server):
     tab_id = await _open_tab(
         client, f"{fixture_server}/warc_page.html", CaptureMode.COPY_AND_RETAIN
     )
