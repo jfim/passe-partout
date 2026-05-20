@@ -255,9 +255,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         try:
             tab = await pool.create_context("about:blank")
             ttl = req.ttl_seconds if req.ttl_seconds is not None else cfg_now.idle_tab_close_seconds
-            rec = registry.register(tab=tab, ttl_seconds=ttl)
+            rec = registry.register(
+                tab=tab, ttl_seconds=ttl, capture_mode=req.capture_mode
+            )
             await coord.attach_tab(rec.id, tab)
-            await app.state.recorder.attach_tab(rec.id, tab)
+            await app.state.recorder.attach_tab(rec.id, tab, req.capture_mode)
             nav = NavCapture(tab)
             await nav.attach()
             rec.nav = nav
