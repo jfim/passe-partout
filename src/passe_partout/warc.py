@@ -15,7 +15,9 @@ other non-current loaders.
 from __future__ import annotations
 
 import io
+import json
 from datetime import UTC, datetime
+from typing import Any
 
 from warcio.statusandheaders import StatusAndHeaders
 from warcio.warcwriter import BufferWARCWriter
@@ -56,6 +58,9 @@ def build_warc(
     hostname: str,
     body_overrides: dict[str, bytes] | None = None,
     include_all_loaders: bool = False,
+    rendered_payload: dict[str, Any] | None = None,
+    main_doc_request_id: str | None = None,
+    rendered_profile: str | None = None,
 ) -> bytes:
     writer = BufferWARCWriter(gzip=False)
 
@@ -71,6 +76,9 @@ def build_warc(
     )
     writer.write_record(info_record)
 
+    main_doc_record_id: str | None = None
+    main_doc_uri: str | None = None
+    main_doc_date: str | None = None
     for r in _select(rec.resources, current_loader_id, include_all_loaders=include_all_loaders):
         warc_date = _iso(r.captured_at) if r.captured_at else _iso(rec.created_at)
 
@@ -123,5 +131,31 @@ def build_warc(
             warc_headers_dict=warc_headers,
         )
         writer.write_record(resp_record)
+        if main_doc_request_id is not None and r.request_id == main_doc_request_id:
+            main_doc_record_id = resp_record.rec_headers.get_header("WARC-Record-ID")
+            main_doc_uri = r.url
+            main_doc_date = warc_date
+
+    # Conversion record carrying the rendered-targets HAR-shaped JSON. Only emitted
+    # when we have both a payload and a matching main-doc response to refer to —
+    # otherwise the WARC-Refers-To linkage would dangle and the record would be
+    # orphaned from the network capture.
+    if rendered_payload is not None and main_doc_record_id is not None:
+        body = json.dumps(rendered_payload).encode("utf-8")
+        warc_headers = {
+            "WARC-Date": main_doc_date or _iso(rec.created_at),
+            "WARC-Refers-To": main_doc_record_id,
+        }
+        if rendered_profile:
+            warc_headers["WARC-Profile"] = rendered_profile
+        conv_record = writer.create_warc_record(
+            uri=main_doc_uri or "",
+            record_type="conversion",
+            payload=io.BytesIO(body),
+            length=len(body),
+            warc_content_type="application/json",
+            warc_headers_dict=warc_headers,
+        )
+        writer.write_record(conv_record)
 
     return writer.get_contents()

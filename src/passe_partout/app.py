@@ -42,6 +42,7 @@ from passe_partout.models import (
     WaitRequest,
 )
 from passe_partout.nav_capture import NavCapture
+from passe_partout.rendered import RENDERED_TARGETS_PROFILE, capture_rendered_payload
 from passe_partout.resources import ResourceRecorder
 from passe_partout.tab_registry import TabRegistry
 from passe_partout.warc import build_warc
@@ -447,7 +448,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         return Response(content=body, media_type=meta.mime_type or "application/octet-stream")
 
     @app.get("/tabs/{tab_id}/warc", summary="WARC archive of the current page's resources")
-    async def get_warc(tab_id: int):
+    async def get_warc(tab_id: int, rendered: bool = False):
         rec = await _require_tab(tab_id)
         if rec is None:
             return JSONResponse(
@@ -477,12 +478,36 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                         body_overrides[r.request_id] = body
                     except Exception:
                         pass
+            rendered_payload: dict | None = None
+            main_doc_request_id: str | None = None
+            if rendered:
+                # Identify the current main-frame document response so the
+                # conversion record can WARC-Refers-To it. Match by loader +
+                # resource_type — there should be exactly one per loader.
+                for r in rec.resources.values():
+                    if r.loader_id != current_loader:
+                        continue
+                    rt = (r.resource_type or "").lower()
+                    if "document" in rt:
+                        main_doc_request_id = r.request_id
+                        break
+                if main_doc_request_id is not None:
+                    try:
+                        page_title = getattr(rec.tab, "title", "") or ""
+                    except Exception:
+                        page_title = ""
+                    rendered_payload = await capture_rendered_payload(
+                        rec.tab, page_title=page_title
+                    )
             blob = build_warc(
                 rec,
                 current_loader,
                 socket.gethostname(),
                 body_overrides=body_overrides,
                 include_all_loaders=(mode == CaptureMode.COPY_AND_RETAIN),
+                rendered_payload=rendered_payload,
+                main_doc_request_id=main_doc_request_id,
+                rendered_profile=RENDERED_TARGETS_PROFILE,
             )
         filename = f"tab-{tab_id}-{current_loader or 'noloader'}.warc"
         return Response(

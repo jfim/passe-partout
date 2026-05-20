@@ -211,6 +211,8 @@ curl -X DELETE localhost:8000/tabs/$TAB
 
 To archive a multi-page session — clicking through links, walking through redirect interstitials, capturing iframe traffic — open the tab with `capture_mode: "copy_and_retain"` and call `/warc` before closing; one tab = one session = one WARC. `no_copy` tabs work too — bodies are fetched live from Chrome at export time, and any Chrome has already evicted ship as zero-length responses with `WARC-Truncated: unspecified`. The archive is uncompressed (`application/warc`, not `.warc.gz`); gzip downstream if you need it. `/fetch` does not produce WARC — use the stateful tab flow.
 
+Pass `?rendered=1` to embed a [rendered-targets](http://iipc.github.io/warc-specifications/specifications/warc-rendered-targets/warc-rendered-targets-1.0/) conversion record alongside the network capture. It's a HAR-shaped JSON document containing the post-JS DOM (base64) for every frame (top + iframes), a viewport-sized PNG screenshot of the top frame, and `_passepartout_*` extension fields (`frameId`, `parentFrameId`, `loaderId`, `ownerSelector`) sufficient to reconstruct the rendered page even for anonymous `about:blank` / `srcdoc` / JS-injected iframes. The conversion record is linked to the main-frame response via `WARC-Refers-To`. Off by default because it roughly doubles archive size and adds a Chrome round-trip per frame.
+
 ### Browser lifecycle
 
 `GET /browser` → `{running, tab_count, headless, shared_profile, extension_dirs, chrome_path}`. Reports current Chromium state and the static config it was launched under.
