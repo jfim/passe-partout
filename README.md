@@ -1,18 +1,18 @@
 # passe-partout
 
-HTTP service that fetches and interacts with web pages through a real Chromium browser.
+HTTP service that fetches and interacts with web pages through a real Chromium browser; it can be used for browser automation as well as archiving of webpages to WARC files.
 
 ## Why
 
-Some sites (Cloudflare, paywalls, JS-only rendering) reject plain HTTP clients. passe-partout fronts them with a real browser via [nodriver](https://github.com/ultrafunkamsterdam/nodriver) and exposes a small REST API any project can call.
+Many websites reject plain HTTP clients (eg. curl, requests), and even if not outright blocked, many webpages require an actual browser due to being rendered through client-side JavaScript. Passe-partout drives a real browser via [nodriver](https://github.com/ultrafunkamsterdam/nodriver) and exposes a small REST API any project can call.
 
 ## Run
 
 ### Docker (recommended)
 
 ```bash
-docker pull ghcr.io/jfim/passe-partout:0.3
-docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.3
+docker pull ghcr.io/jfim/passe-partout:0.4
+docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.4
 ```
 
 The image listens on `0.0.0.0:8000`, runs Chrome for Testing headless under tini as a non-root user, and exposes a `/healthz` healthcheck. Chrome for Testing is bundled instead of Chromium because Google Chrome stable rejects `--load-extension` (breaking `UNPACKED_EXTENSION_DIRS`); CfT mirrors stable behavior closely while keeping the automation switches honored.
@@ -39,12 +39,12 @@ docker run --rm -p 8000:8000 \
     -v /path/to/ext1:/extensions/ext1 \
     -v /path/to/ext2:/extensions/ext2 \
     -e UNPACKED_EXTENSION_DIRS=/extensions/ext1:/extensions/ext2 \
-    ghcr.io/jfim/passe-partout:0.3
+    ghcr.io/jfim/passe-partout:0.4
 ```
 
 To run Chromium under a virtual display instead of headless (better for some extensions and bot-detection bypasses), set `USE_XVFB=1`:
 
-    docker run --rm -p 8000:8000 -e USE_XVFB=1 ghcr.io/jfim/passe-partout:0.3
+    docker run --rm -p 8000:8000 -e USE_XVFB=1 ghcr.io/jfim/passe-partout:0.4
 
 ### From source
 
