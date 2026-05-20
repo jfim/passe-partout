@@ -107,7 +107,7 @@ For multi-step interaction, create a tab, drive it, then delete it.
 
 | Method & path | Purpose |
 | --- | --- |
-| `POST /tabs` | Create a tab. Body: `{url, cookies?, ttl_seconds?}` → `{id, status, final_url, content_type, download?}`. Returns 429 if `MAX_TABS` reached. |
+| `POST /tabs` | Create a tab. Body: `{url, cookies?, ttl_seconds?, capture_mode?}` → `{id, status, final_url, content_type, download?}`. Returns 429 if `MAX_TABS` reached. `capture_mode` is one of `"no_copy"` (default), `"copy"`, `"copy_and_retain"` — see [Resources](#resources). |
 | `GET /tabs` | List active tabs. |
 | `GET /tabs/{id}` | Tab state: `{url, title, ready_state}`. |
 | `DELETE /tabs/{id}` | Close the tab. |
@@ -121,6 +121,7 @@ For multi-step interaction, create a tab, drive it, then delete it.
 | `POST /tabs/{id}/wait` | Wait for a selector and/or network idle. Body: `{selector?, network_idle?, timeout_ms?}`. |
 | `GET /tabs/{id}/resources` | List captured network responses for the tab. Each entry: `{request_id, url, status, mime_type, resource_type, encoded_size}`. |
 | `GET /tabs/{id}/resources/{request_id}` | Retrieve the response body bytes with the original `Content-Type`. Returns 404 if the entry was pruned (e.g. on main-frame navigation), 410 if Chrome has already evicted the body. |
+| `GET /tabs/{id}/warc` | Download a [WARC](https://iipc.github.io/warc-specifications/) archive of the resources captured for the current page (`application/warc`). See [WARC export](#warc-export). |
 
 ### Downloads
 
@@ -181,6 +182,39 @@ curl -o asset.bin localhost:8000/tabs/$TAB/resources/$RID
 ```
 
 Per-tab metadata is pruned when the main frame navigates: only entries from the current loader (plus worker-served responses with no loader id) remain.
+
+#### Capture modes
+
+`POST /tabs` accepts an optional `capture_mode` that controls how aggressively the tab retains response bodies. The mode is set at tab creation and applies for the lifetime of the tab.
+
+| Mode | Bodies | Across navigation |
+| --- | --- | --- |
+| `no_copy` (default) | Lazy via Chrome's network process. May 410 if Chrome has evicted them. | Pruned. |
+| `copy` | Buffered eagerly into the record on `loadingFinished`. Survives Chrome-side eviction. | Pruned. |
+| `copy_and_retain` | Same as `copy`. | Retained for the tab's lifetime. Memory grows with traffic — no built-in cap. |
+
+Request and response headers are captured in all three modes (they're cheap and needed for WARC export). The only difference between modes is body buffering and cross-navigation retention.
+
+In `copy` and `copy_and_retain` modes, `GET /tabs/{id}/resources/{request_id}` returns the buffered copy when present, so it keeps working after Chrome would normally have evicted the body.
+
+### WARC export
+
+`GET /tabs/{id}/warc` returns a [WARC 1.1](https://iipc.github.io/warc-specifications/) archive of the resources captured for the current main-frame loader, suitable for replay in tools like [pywb](https://github.com/webrecorder/pywb) or [Browsertrix](https://browsertrix.com/). The archive contains one `warcinfo` record followed by paired `request` / `response` records for each tracked resource.
+
+```bash
+TAB=$(curl -s -X POST localhost:8000/tabs -H 'content-type: application/json' \
+           -d '{"url":"https://example.com","capture_mode":"copy"}' | jq .id)
+
+curl -o page.warc localhost:8000/tabs/$TAB/warc
+curl -X DELETE localhost:8000/tabs/$TAB
+```
+
+Notes:
+
+- Scope is the current loader. To archive a multi-page session, open the tab with `capture_mode: "copy_and_retain"` and call `/warc` before closing.
+- `no_copy` tabs work too: bodies are fetched live from Chrome at export time. Bodies Chrome has already evicted ship as zero-length responses with `WARC-Truncated: unspecified`.
+- The archive is uncompressed (`application/warc`, not `.warc.gz`); gzip downstream if you need it.
+- `/fetch` does not produce WARC — use the stateful tab flow.
 
 ### Browser lifecycle
 
