@@ -277,6 +277,56 @@ async def test_warc_endpoint_domsnapshot_off_by_default(client, fixture_server):
 
 
 @pytest.mark.asyncio
+async def test_warc_endpoint_domsnapshot_includes_dom_rects_and_paint_order(client, fixture_server):
+    import json
+
+    tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?domsnapshot=1&dom_rects=1&paint_order=1")
+        assert resp.status_code == 200, resp.text
+        conv = next(
+            r.content_stream().read()
+            for r in ArchiveIterator(io.BytesIO(resp.content), no_record_parse=True)
+            if r.rec_type == "conversion"
+        )
+        layout = json.loads(conv)["documents"][0]["layout"]
+        # dom_rects adds offset/scroll/client rects; paint_order adds paintOrders.
+        assert "offsetRects" in layout
+        assert "scrollRects" in layout
+        assert "clientRects" in layout
+        assert "paintOrders" in layout
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_endpoint_domsnapshot_omits_rects_and_paint_order_by_default(
+    client, fixture_server
+):
+    import json
+
+    tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?domsnapshot=1")
+        assert resp.status_code == 200, resp.text
+        conv = next(
+            r.content_stream().read()
+            for r in ArchiveIterator(io.BytesIO(resp.content), no_record_parse=True)
+            if r.rec_type == "conversion"
+        )
+        layout = json.loads(conv)["documents"][0]["layout"]
+        # Absolute bounds are always present; the optional rect sets and paint
+        # order are not, since the flags default off.
+        assert "bounds" in layout
+        assert "offsetRects" not in layout
+        assert "paintOrders" not in layout
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
 async def test_warc_endpoint_rendered_and_domsnapshot_both_emit_records(client, fixture_server):
     tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
     try:
