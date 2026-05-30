@@ -62,6 +62,9 @@ def build_warc(
     rendered_payload: dict[str, Any] | None = None,
     main_doc_request_id: str | None = None,
     rendered_profile: str | None = None,
+    dom_snapshot_payload: dict[str, Any] | None = None,
+    dom_snapshot_profile: str | None = None,
+    computed_styles: list[str] | None = None,
 ) -> bytes:
     writer = BufferWARCWriter(gzip=False)
 
@@ -149,6 +152,28 @@ def build_warc(
         }
         if rendered_profile:
             warc_headers["WARC-Profile"] = rendered_profile
+        conv_record = writer.create_warc_record(
+            uri=main_doc_uri or "",
+            record_type="conversion",
+            payload=io.BytesIO(body),
+            length=len(body),
+            warc_content_type="application/json",
+            warc_headers_dict=warc_headers,
+        )
+        writer.write_record(conv_record)
+
+    # DOM snapshot conversion record. Same dangling-reference guard as the
+    # rendered record: only emitted when there is a main-doc response to refer to.
+    if dom_snapshot_payload is not None and main_doc_record_id is not None:
+        body = json.dumps(dom_snapshot_payload).encode("utf-8")
+        warc_headers = {
+            "WARC-Date": main_doc_date or _iso(rec.created_at),
+            "WARC-Refers-To": main_doc_record_id,
+        }
+        if dom_snapshot_profile:
+            warc_headers["WARC-Profile"] = dom_snapshot_profile
+        if computed_styles:
+            warc_headers["X-Passe-Partout-Computed-Styles"] = ",".join(computed_styles)
         conv_record = writer.create_warc_record(
             uri=main_doc_uri or "",
             record_type="conversion",
