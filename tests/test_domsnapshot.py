@@ -47,3 +47,38 @@ async def test_capture_accepts_empty_computed_styles():
 async def test_capture_returns_none_on_cdp_error():
     tab = _FakeTab(raises=True)
     assert await capture_dom_snapshot(tab, ["display"]) is None
+
+
+@pytest.mark.asyncio
+async def test_capture_passes_dom_rects_and_paint_order_flags(monkeypatch):
+    import nodriver as uc
+
+    captured: dict = {}
+
+    def fake_capture_snapshot(**kwargs):
+        captured.update(kwargs)
+        return "SENTINEL_CMD"
+
+    monkeypatch.setattr(uc.cdp.dom_snapshot, "capture_snapshot", fake_capture_snapshot)
+    tab = _FakeTab(result=([_FakeDoc({"nodes": {}})], []))
+    await capture_dom_snapshot(tab, ["display"], include_dom_rects=True, include_paint_order=True)
+    assert captured["computed_styles"] == ["display"]
+    assert captured["include_dom_rects"] is True
+    assert captured["include_paint_order"] is True
+
+
+@pytest.mark.asyncio
+async def test_capture_flags_default_off(monkeypatch):
+    import nodriver as uc
+
+    captured: dict = {}
+
+    def fake_capture_snapshot(**kwargs):
+        captured.update(kwargs)
+        return "SENTINEL_CMD"
+
+    monkeypatch.setattr(uc.cdp.dom_snapshot, "capture_snapshot", fake_capture_snapshot)
+    tab = _FakeTab(result=([], []))
+    await capture_dom_snapshot(tab, [])
+    assert captured["include_dom_rects"] is False
+    assert captured["include_paint_order"] is False

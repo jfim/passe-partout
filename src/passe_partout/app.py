@@ -454,6 +454,8 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         rendered: bool = False,
         domsnapshot: bool = False,
         computed_styles: str = "",
+        dom_rects: bool = False,
+        paint_order: bool = False,
     ):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -506,7 +508,12 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     page_title = ""
                 rendered_payload = await capture_rendered_payload(rec.tab, page_title=page_title)
             if domsnapshot and main_doc_request_id is not None:
-                dom_snapshot_payload = await capture_dom_snapshot(rec.tab, styles_list)
+                dom_snapshot_payload = await capture_dom_snapshot(
+                    rec.tab,
+                    styles_list,
+                    include_dom_rects=dom_rects,
+                    include_paint_order=paint_order,
+                )
             blob = build_warc(
                 rec,
                 current_loader,
