@@ -199,3 +199,91 @@ def test_body_overrides_dont_override_buffered_body():
     # No exception, builds successfully.
     assert isinstance(blob, bytes)
     assert len(blob) > 0
+
+
+def test_dom_snapshot_payload_emits_conversion_record_linked_to_main_doc():
+    import json
+
+    main = _make_record(request_id="main", loader_id="loader-A", url="http://example.com/page")
+    tab = _make_tab_record([main])
+    payload = {"documents": [{"nodes": {}}], "strings": ["a"]}
+    blob = build_warc(
+        tab,
+        current_loader_id="loader-A",
+        hostname="testhost",
+        dom_snapshot_payload=payload,
+        dom_snapshot_profile="urn:example:ds:1.0",
+        computed_styles=["display", "color"],
+        main_doc_request_id="main",
+    )
+    collected: list[tuple[str, dict, bytes]] = []
+    for r in ArchiveIterator(io.BytesIO(blob), no_record_parse=True):
+        collected.append((r.rec_type, dict(r.rec_headers.headers), r.content_stream().read()))
+    convs = [c for c in collected if c[0] == "conversion"]
+    assert len(convs) == 1, [c[0] for c in collected]
+    _, conv_headers, conv_body = convs[0]
+    main_resp_headers = next(
+        h
+        for t, h, _ in collected
+        if t == "response" and h.get("WARC-Target-URI") == "http://example.com/page"
+    )
+    assert conv_headers["WARC-Refers-To"] == main_resp_headers["WARC-Record-ID"]
+    assert conv_headers["WARC-Target-URI"] == "http://example.com/page"
+    assert conv_headers["WARC-Profile"] == "urn:example:ds:1.0"
+    assert conv_headers["Content-Type"] == "application/json"
+    assert conv_headers["X-Passe-Partout-Computed-Styles"] == "display,color"
+    assert json.loads(conv_body) == payload
+
+
+def test_dom_snapshot_omits_styles_header_when_empty():
+    main = _make_record(request_id="main", loader_id="loader-A", url="http://example.com/page")
+    tab = _make_tab_record([main])
+    blob = build_warc(
+        tab,
+        current_loader_id="loader-A",
+        hostname="testhost",
+        dom_snapshot_payload={"documents": [], "strings": []},
+        dom_snapshot_profile="urn:example:ds:1.0",
+        computed_styles=[],
+        main_doc_request_id="main",
+    )
+    conv = next(r for r in ArchiveIterator(io.BytesIO(blob)) if r.rec_type == "conversion")
+    assert conv.rec_headers.get_header("X-Passe-Partout-Computed-Styles") is None
+
+
+def test_dom_snapshot_skipped_when_main_doc_not_in_resources():
+    main = _make_record(request_id="main", loader_id="loader-A")
+    tab = _make_tab_record([main])
+    blob = build_warc(
+        tab,
+        current_loader_id="loader-A",
+        hostname="testhost",
+        dom_snapshot_payload={"documents": [], "strings": []},
+        dom_snapshot_profile="urn:example:ds:1.0",
+        computed_styles=["display"],
+        main_doc_request_id="nonexistent",
+    )
+    types = [r.rec_type for r in ArchiveIterator(io.BytesIO(blob))]
+    assert "conversion" not in types
+
+
+def test_rendered_and_dom_snapshot_emit_two_conversion_records():
+    main = _make_record(request_id="main", loader_id="loader-A", url="http://example.com/page")
+    tab = _make_tab_record([main])
+    blob = build_warc(
+        tab,
+        current_loader_id="loader-A",
+        hostname="testhost",
+        rendered_payload={"log": {"version": "1.2", "pages": []}},
+        rendered_profile="http://example.com/rendered",
+        dom_snapshot_payload={"documents": [], "strings": []},
+        dom_snapshot_profile="urn:example:ds:1.0",
+        computed_styles=["display"],
+        main_doc_request_id="main",
+    )
+    profiles = [
+        r.rec_headers.get_header("WARC-Profile")
+        for r in ArchiveIterator(io.BytesIO(blob))
+        if r.rec_type == "conversion"
+    ]
+    assert sorted(profiles) == ["http://example.com/rendered", "urn:example:ds:1.0"]
