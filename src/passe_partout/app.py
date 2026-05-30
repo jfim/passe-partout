@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
+from passe_partout.domsnapshot import DOM_SNAPSHOT_PROFILE, capture_dom_snapshot
 from passe_partout.downloads import DownloadCoordinator
 from passe_partout.models import (
     BrowserInfo,
@@ -448,7 +449,12 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         return Response(content=body, media_type=meta.mime_type or "application/octet-stream")
 
     @app.get("/tabs/{tab_id}/warc", summary="WARC archive of the current page's resources")
-    async def get_warc(tab_id: int, rendered: bool = False):
+    async def get_warc(
+        tab_id: int,
+        rendered: bool = False,
+        domsnapshot: bool = False,
+        computed_styles: str = "",
+    ):
         rec = await _require_tab(tab_id)
         if rec is None:
             return JSONResponse(
@@ -479,10 +485,12 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     except Exception:
                         pass
             rendered_payload: dict | None = None
+            dom_snapshot_payload: dict | None = None
             main_doc_request_id: str | None = None
-            if rendered:
+            styles_list = [s.strip() for s in computed_styles.split(",") if s.strip()]
+            if rendered or domsnapshot:
                 # Identify the current main-frame document response so the
-                # conversion record can WARC-Refers-To it. Match by loader +
+                # conversion records can WARC-Refers-To it. Match by loader +
                 # resource_type — there should be exactly one per loader.
                 for r in rec.resources.values():
                     if r.loader_id != current_loader:
@@ -491,14 +499,14 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     if "document" in rt:
                         main_doc_request_id = r.request_id
                         break
-                if main_doc_request_id is not None:
-                    try:
-                        page_title = getattr(rec.tab, "title", "") or ""
-                    except Exception:
-                        page_title = ""
-                    rendered_payload = await capture_rendered_payload(
-                        rec.tab, page_title=page_title
-                    )
+            if rendered and main_doc_request_id is not None:
+                try:
+                    page_title = getattr(rec.tab, "title", "") or ""
+                except Exception:
+                    page_title = ""
+                rendered_payload = await capture_rendered_payload(rec.tab, page_title=page_title)
+            if domsnapshot and main_doc_request_id is not None:
+                dom_snapshot_payload = await capture_dom_snapshot(rec.tab, styles_list)
             blob = build_warc(
                 rec,
                 current_loader,
@@ -508,6 +516,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 rendered_payload=rendered_payload,
                 main_doc_request_id=main_doc_request_id,
                 rendered_profile=RENDERED_TARGETS_PROFILE,
+                dom_snapshot_payload=dom_snapshot_payload,
+                dom_snapshot_profile=DOM_SNAPSHOT_PROFILE,
+                computed_styles=styles_list,
             )
         filename = f"tab-{tab_id}-{current_loader or 'noloader'}.warc"
         return Response(

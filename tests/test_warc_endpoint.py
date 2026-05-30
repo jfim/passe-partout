@@ -228,6 +228,74 @@ async def test_warc_endpoint_rendered_off_by_default(client, fixture_server):
 
 
 @pytest.mark.asyncio
+async def test_warc_endpoint_domsnapshot_emits_conversion_record(client, fixture_server):
+    import json
+
+    tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?domsnapshot=1&computed_styles=display,color")
+        assert resp.status_code == 200, resp.text
+
+        conversions: list[tuple[dict, bytes]] = []
+        responses: list[tuple[dict, bytes]] = []
+        for r in ArchiveIterator(io.BytesIO(resp.content), no_record_parse=True):
+            headers = dict(r.rec_headers.headers)
+            body = r.content_stream().read()
+            if r.rec_type == "conversion":
+                conversions.append((headers, body))
+            elif r.rec_type == "response":
+                responses.append((headers, body))
+
+        assert len(conversions) == 1, "expected one DOM snapshot conversion record"
+        conv_headers, conv_body = conversions[0]
+        assert conv_headers["Content-Type"] == "application/json"
+        assert "dom-snapshot" in conv_headers["WARC-Profile"]
+        assert conv_headers["X-Passe-Partout-Computed-Styles"] == "display,color"
+        main_doc_uri = f"{fixture_server}/normal_page.html"
+        main_resp = next(h for h, _ in responses if h.get("WARC-Target-URI") == main_doc_uri)
+        assert conv_headers["WARC-Refers-To"] == main_resp["WARC-Record-ID"]
+
+        payload = json.loads(conv_body)
+        assert "documents" in payload and "strings" in payload
+        assert isinstance(payload["documents"], list)
+        assert isinstance(payload["strings"], list)
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_endpoint_domsnapshot_off_by_default(client, fixture_server):
+    tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.5)
+        resp = await client.get(f"/tabs/{tab_id}/warc")
+        types = [r.rec_type for r in ArchiveIterator(io.BytesIO(resp.content))]
+        assert "conversion" not in types
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_endpoint_rendered_and_domsnapshot_both_emit_records(client, fixture_server):
+    tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?rendered=1&domsnapshot=1")
+        assert resp.status_code == 200, resp.text
+        profiles = [
+            r.rec_headers.get_header("WARC-Profile")
+            for r in ArchiveIterator(io.BytesIO(resp.content))
+            if r.rec_type == "conversion"
+        ]
+        assert len(profiles) == 2
+        assert any("warc-rendered-targets" in p for p in profiles)
+        assert any("dom-snapshot" in p for p in profiles)
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
 async def test_warc_endpoint_does_not_buffer_bodies_in_no_copy_mode(client, fixture_server):
     """Regression: GET /warc must not populate r.body for NO_COPY tabs."""
     tab_id = await _open(client, f"{fixture_server}/warc_page.html", mode="no_copy")
