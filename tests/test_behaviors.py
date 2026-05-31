@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 
-from passe_partout.behaviors import BehaviorCatalog, perturb_steps
+from passe_partout.behaviors import (
+    BUILTIN_SCROLL_DOWN,
+    BehaviorCatalog,
+    perturb_steps,
+    replay_wheel,
+)
 
 
 def test_builtin_scroll_down_present():
@@ -67,3 +73,21 @@ def test_perturb_stays_within_bounds():
     assert 90.0 <= dy <= 110.0
     assert 8.0 <= dt <= 12.0
     assert dt >= 0.0
+
+
+async def test_replay_wheel_scrolls_page(browser_pool):
+    # inline styles (no '#') so the data: URL isn't truncated at a fragment
+    tall = (
+        'data:text/html,<body style="margin:0">'
+        '<div style="height:5000px">tall</div></body>'
+    )
+    tab = await browser_pool.create_context(tall)
+    try:
+        before = await tab.evaluate("window.scrollY")
+        await replay_wheel(tab, list(BUILTIN_SCROLL_DOWN.steps))
+        await asyncio.sleep(0.3)  # let the compositor commit the scroll
+        after = await tab.evaluate("window.scrollY")
+        assert before == 0
+        assert after > before
+    finally:
+        await browser_pool.close_context(tab)
