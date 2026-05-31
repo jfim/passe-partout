@@ -17,12 +17,14 @@ import nodriver as uc
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
+from passe_partout.behaviors import BehaviorCatalog
 from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
 from passe_partout.domsnapshot import DOM_SNAPSHOT_PROFILE, capture_dom_snapshot
 from passe_partout.downloads import DownloadCoordinator
 from passe_partout.isolated import evaluate_isolated, main_frame_id
 from passe_partout.models import (
+    BehaviorInfo,
     BrowserInfo,
     BrowserShutdownResponse,
     CaptureMode,
@@ -112,6 +114,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         app.state.coord.set_registry(app.state.registry)
         app.state.recorder = ResourceRecorder()
         app.state.recorder.set_registry(app.state.registry)
+        app.state.behaviors = BehaviorCatalog.load(cfg.behavior_trace_dir)
         app.state.sweep_once = lambda: _sweep_once(app)
 
         sweeper_task = asyncio.create_task(_sweeper_loop(app))
@@ -208,6 +211,17 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 last_used_at=rec.last_used_at,
             )
             for rec in registry.all()
+        ]
+
+    @app.get(
+        "/behaviors",
+        response_model=list[BehaviorInfo],
+        summary="List available scroll/input behaviors",
+    )
+    async def list_behaviors():
+        return [
+            BehaviorInfo(name=b.name, kind=b.kind, source=b.source)
+            for b in app.state.behaviors.list()
         ]
 
     def _download_to_status(dl) -> DownloadStatus:

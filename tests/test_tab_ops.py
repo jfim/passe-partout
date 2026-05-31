@@ -162,3 +162,12 @@ async def test_eval_world_isolated_ignores_page_globals(client, fixture_server):
         assert iso.json()["result"] == "absent"
     finally:
         await _close(client, tid)
+
+
+async def test_list_behaviors_includes_builtin(client):
+    r = await client.get("/behaviors")
+    assert r.status_code == 200
+    by_name = {b["name"]: b for b in r.json()}
+    assert "scroll-down" in by_name
+    assert by_name["scroll-down"]["source"] == "builtin"
+    assert by_name["scroll-down"]["kind"] == "scroll-down"
