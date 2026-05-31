@@ -368,6 +368,42 @@ async def test_warc_endpoint_does_not_buffer_bodies_in_no_copy_mode(client, fixt
 
 
 @pytest.mark.asyncio
+async def test_warc_rendered_folds_cssom(client, fixture_server):
+    import base64
+    import json
+
+    tab_id = await _open(client, f"{fixture_server}/cssom_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?rendered=1")
+        assert resp.status_code == 200, resp.text
+        conv = next(
+            r.content_stream().read()
+            for r in ArchiveIterator(io.BytesIO(resp.content), no_record_parse=True)
+            if r.rec_type == "conversion"
+        )
+        pages = json.loads(conv)["log"]["pages"]
+        top = next(p for p in pages if p["_passepartout_parentFrameId"] is None)
+        dom = base64.b64decode(top["renderedContent"]["text"]).decode("utf-8")
+
+        # CSSOM-mutated <style> rule folded in
+        assert ".injected" in dom
+        # document-level adopted sheet inserted before </body>
+        assert ".docadopt" in dom
+        assert dom.index(".docadopt") < dom.index("</body>")
+        # shadow-scoped adopted + inline styles land inside the shadow template
+        tpl = dom.index("shadowrootmode")
+        tpl_end = dom.index("</template>", tpl)
+        assert tpl < dom.index(".shadopt") < tpl_end
+        assert tpl < dom.index(".shinline") < tpl_end
+        # off-by-one guard: light <style> rule present and NOT inside that template
+        assert ".lightinjected" in dom
+        assert dom.index(".lightinjected") > dom.index("</template>")
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
 async def test_warc_rendered_includes_shadow_dom(client, fixture_server):
     import base64
     import json

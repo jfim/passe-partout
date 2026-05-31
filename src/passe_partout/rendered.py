@@ -26,6 +26,7 @@ from typing import Any
 import nodriver as uc
 
 from passe_partout import __version__
+from passe_partout.cssom import fold_cssom
 from passe_partout.isolated import call_on_node_isolated, evaluate_isolated
 
 RENDERED_TARGETS_PROFILE = (
@@ -194,6 +195,9 @@ async def capture_rendered_payload(tab: uc.Tab, page_title: str = "") -> dict[st
             owner_selector = await _owner_selector(
                 tab, uc.cdp.page.FrameId(parent_frame_id), int(backend_id)
             )
+
+        if dom_html is not None:
+            dom_html = await fold_cssom(tab, uc.cdp.page.FrameId(frame_id), dom_html)
 
         entry: dict[str, Any] = {
             "id": f"frame_{frame_id}",
