@@ -1,6 +1,6 @@
 [project]
 name = "passe-partout"
-version = "0.4.3"
+version = "0.5.0"
 description = "HTTP service that drives a real Chromium browser through a REST API: stateful tabs, JS evaluation, downloads, resource capture, and one-shot fetches that bypass bot walls and paywalls."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
