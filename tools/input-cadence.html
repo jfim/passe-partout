@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Input cadence probe</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --ink: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #f778ba;
+    --grid: #21262d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--grid); }
+  header h1 { margin: 0; font-size: 14px; font-weight: 600; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #sensor {
+    flex: 1; position: relative;
+    margin: 16px; border: 1px dashed #30363d; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); cursor: crosshair; user-select: none;
+    transition: border-color .12s, background .12s;
+  }
+  #sensor.active { border-color: var(--accent); border-style: solid; background: #11161d; color: transparent; }
+  #sensor .hint { font-size: 13px; }
+  aside {
+    width: 360px; padding: 16px; border-left: 1px solid var(--grid);
+    overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+  }
+  .card { background: var(--panel); border: 1px solid var(--grid); border-radius: 8px; padding: 12px; }
+  .card h2 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  canvas { width: 100%; display: block; image-rendering: crisp-edges; }
+  .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td { padding: 2px 0; }
+  td.k { color: var(--muted); }
+  td.v { text-align: right; font-variant-numeric: tabular-nums; }
+  .frozen { color: var(--accent2); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Input cadence probe</h1>
+  <p>Scrub the cursor across the panel. Stats reset each time you enter from outside, and freeze when you leave so you can read the pass.</p>
+</header>
+<main>
+  <div id="sensor"><span class="hint">move cursor in here</span></div>
+  <aside>
+    <div class="card">
+      <h2>Status</h2>
+      <table>
+        <tr><td class="k">state</td><td class="v" id="state">idle</td></tr>
+        <tr><td class="k">pointer type</td><td class="v" id="ptype">&mdash;</td></tr>
+        <tr><td class="k">pass duration</td><td class="v" id="dur">&mdash;</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Delivered events</h2>
+      <table>
+        <tr><td class="k">count</td><td class="v" id="d_count">0</td></tr>
+        <tr><td class="k">rate</td><td class="v" id="d_rate">&mdash;</td></tr>
+        <tr><td class="k">mean gap</td><td class="v" id="d_mean">&mdash;</td></tr>
+        <tr><td class="k">median gap</td><td class="v" id="d_med">&mdash;</td></tr>
+        <tr><td class="k">p95 gap</td><td class="v" id="d_p95">&mdash;</td></tr>
+        <tr><td class="k">min / max</td><td class="v" id="d_mm">&mdash;</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Coalesced samples</h2>
+      <table>
+        <tr><td class="k">count</td><td class="v" id="c_count">0</td></tr>
+        <tr><td class="k">rate</td><td class="v" id="c_rate">&mdash;</td></tr>
+        <tr><td class="k">mean gap</td><td class="v" id="c_mean">&mdash;</td></tr>
+        <tr><td class="k">median gap</td><td class="v" id="c_med">&mdash;</td></tr>
+        <tr><td class="k">samples / event</td><td class="v" id="c_per">&mdash;</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Mouse move &mdash; inter-event gap (ms)</h2>
+      <canvas id="hist" height="300"></canvas>
+      <div class="legend">
+        <span><span class="swatch" style="background:#58a6ff"></span>delivered</span>
+        <span><span class="swatch" style="background:#f778ba"></span>coalesced</span>
+        <span>bins: 1ms, 0&ndash;50ms, last = overflow</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Mouse wheel</h2>
+      <table>
+        <tr><td class="k">count</td><td class="v" id="w_count">0</td></tr>
+        <tr><td class="k">rate</td><td class="v" id="w_rate">&mdash;</td></tr>
+        <tr><td class="k">mean gap</td><td class="v" id="w_mean">&mdash;</td></tr>
+        <tr><td class="k">median gap</td><td class="v" id="w_med">&mdash;</td></tr>
+        <tr><td class="k">min / max gap</td><td class="v" id="w_mm">&mdash;</td></tr>
+        <tr><td class="k">delta mode</td><td class="v" id="w_mode">&mdash;</td></tr>
+        <tr><td class="k">median |deltaY|</td><td class="v" id="w_dy">&mdash;</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Wheel &mdash; inter-event gap (ms)</h2>
+      <canvas id="whist" height="220"></canvas>
+      <div class="legend">
+        <span><span class="swatch" style="background:#3fb950"></span>wheel</span>
+        <span>bins: 5ms, 0&ndash;200ms, last = overflow</span>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const BIN_MS = 1;       // mouse-move bin width
+  const MAX_MS = 50;      // last bin (index 50) is the >=50ms overflow bucket
+  const NBINS = MAX_MS + 1;
+
+  const W_BIN_MS = 5;     // wheel bin width
+  const W_MAX_MS = 200;   // wheel histogram range
+  const W_NBINS = W_MAX_MS / W_BIN_MS + 1;
+
+  const DELTA_MODE = { 0: "pixel", 1: "line", 2: "page" };
+
+  const sensor = document.getElementById("sensor");
+  const $ = (id) => document.getElementById(id);
+
+  // Per-pass state.
+  let active = false;
+  let frozen = false;
+  let passStart = 0;
+  let lastDeliveredTs = null;   // timeStamp of previous delivered pointermove
+  let lastCoalescedTs = null;   // timeStamp of previous coalesced sample (across calls)
+  let deliveredCount = 0;
+  let coalescedCount = 0;
+  let pointerType = "—";
+  let lastWheelTs = null;       // timeStamp of previous wheel event
+  let wheelMode = null;         // last seen deltaMode
+  const dGaps = [];   // delivered inter-event gaps (ms)
+  const cGaps = [];   // coalesced inter-sample gaps (ms)
+  const wGaps = [];   // wheel inter-event gaps (ms)
+  const wDelta = [];  // |deltaY| per wheel event
+
+  function reset() {
+    lastDeliveredTs = null;
+    lastCoalescedTs = null;
+    lastWheelTs = null;
+    wheelMode = null;
+    deliveredCount = 0;
+    coalescedCount = 0;
+    dGaps.length = 0;
+    cGaps.length = 0;
+    wGaps.length = 0;
+    wDelta.length = 0;
+    passStart = performance.now();
+  }
+
+  sensor.addEventListener("pointerenter", (e) => {
+    active = true;
+    frozen = false;
+    pointerType = e.pointerType || "mouse";
+    sensor.classList.add("active");
+    reset();
+  });
+
+  sensor.addEventListener("pointerleave", () => {
+    active = false;
+    frozen = true;             // hold the last pass on screen
+    sensor.classList.remove("active");
+  });
+
+  sensor.addEventListener("pointermove", (e) => {
+    if (!active) return;
+    const t = e.timeStamp;
+
+    // Delivered cadence: gap from previous delivered event.
+    if (lastDeliveredTs !== null) {
+      dGaps.push(t - lastDeliveredTs);
+    }
+    lastDeliveredTs = t;
+    deliveredCount++;
+
+    // Raw coalesced stream: flatten every sample into one timeline.
+    const coalesced = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [e];
+    const samples = coalesced.length ? coalesced : [e];
+    for (const s of samples) {
+      const st = s.timeStamp;
+      if (lastCoalescedTs !== null) {
+        cGaps.push(st - lastCoalescedTs);
+      }
+      lastCoalescedTs = st;
+      coalescedCount++;
+    }
+  }, { passive: true });
+
+  sensor.addEventListener("wheel", (e) => {
+    if (!active) return;
+    e.preventDefault();   // keep the page from scrolling under us
+    const t = e.timeStamp;
+    if (lastWheelTs !== null) {
+      wGaps.push(t - lastWheelTs);
+    }
+    lastWheelTs = t;
+    wheelMode = e.deltaMode;
+    wDelta.push(Math.abs(e.deltaY));
+  }, { passive: false });
+
+  // ---- stats helpers ----
+  const fmt = (x, d = 2) => Number.isFinite(x) ? x.toFixed(d) : "—";
+  function quantile(sorted, q) {
+    if (!sorted.length) return NaN;
+    const i = (sorted.length - 1) * q;
+    const lo = Math.floor(i), hi = Math.ceil(i);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+  }
+  function stats(arr) {
+    if (!arr.length) return null;
+    const s = arr.slice().sort((a, b) => a - b);
+    const sum = s.reduce((a, b) => a + b, 0);
+    return { mean: sum / s.length, med: quantile(s, 0.5), p95: quantile(s, 0.95), min: s[0], max: s[s.length - 1] };
+  }
+  function histogram(arr, binMs, nbins) {
+    const bins = new Array(nbins).fill(0);
+    for (const g of arr) {
+      let idx = Math.floor(g / binMs);
+      if (idx >= nbins) idx = nbins - 1;
+      if (idx < 0) idx = 0;
+      bins[idx]++;
+    }
+    return bins;
+  }
+
+  // ---- canvas ----
+  function makeCanvas(id, height) {
+    const canvas = $(id);
+    const ctx = canvas.getContext("2d");
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(canvas.clientWidth * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    return { canvas, ctx, height, resize };
+  }
+  const moveC = makeCanvas("hist", 300);
+  const wheelC = makeCanvas("whist", 220);
+  function sizeCanvases() { moveC.resize(); wheelC.resize(); }
+  window.addEventListener("resize", sizeCanvases);
+
+  // Draw stacked bar series. `series` = [{bins, color}], `ticks` = [ms,...].
+  function drawHist(c, maxMs, ticks, series) {
+    const { ctx } = c;
+    const W = c.canvas.clientWidth, H = c.height;
+    ctx.clearRect(0, 0, W, H);
+    const padL = 4, padR = 4, padT = 8, padB = 18;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+
+    let peak = 1;
+    for (const s of series) peak = Math.max(peak, ...s.bins);
+
+    ctx.strokeStyle = "#21262d";
+    ctx.fillStyle = "#8b949e";
+    ctx.lineWidth = 1;
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    for (const ms of ticks) {
+      const x = padL + (ms / maxMs) * plotW;
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+      ctx.fillText(ms >= maxMs ? maxMs + "+" : String(ms), x, H - 5);
+    }
+
+    ctx.globalAlpha = 0.6;
+    for (const s of series) {
+      const nbins = s.bins.length;
+      const bw = plotW / nbins;
+      ctx.fillStyle = s.color;
+      for (let i = 0; i < nbins; i++) {
+        if (!s.bins[i]) continue;
+        const h = (s.bins[i] / peak) * plotH;
+        ctx.fillRect(padL + i * bw + 0.5, padT + plotH - h, Math.max(1, bw - 1), h);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawHistogram() {
+    drawHist(moveC, MAX_MS, [0, 16, 33, 50], [
+      { bins: histogram(cGaps, BIN_MS, NBINS), color: "#f778ba" },
+      { bins: histogram(dGaps, BIN_MS, NBINS), color: "#58a6ff" },
+    ]);
+    drawHist(wheelC, W_MAX_MS, [0, 50, 100, 150, 200], [
+      { bins: histogram(wGaps, W_BIN_MS, W_NBINS), color: "#3fb950" },
+    ]);
+  }
+
+  // ---- render loop ----
+  function render() {
+    const dur = active ? (performance.now() - passStart) : (frozen ? (lastDeliveredTs !== null ? null : 0) : 0);
+
+    $("state").textContent = active ? "recording" : (frozen ? "frozen" : "idle");
+    $("state").className = "v" + (frozen && !active ? " frozen" : "");
+    $("ptype").textContent = pointerType;
+
+    const elapsedMs = active ? (performance.now() - passStart) : null;
+    // For a frozen pass, derive duration from the gap sum so it reflects the actual movement window.
+    const movedMs = dGaps.reduce((a, b) => a + b, 0);
+    const shownDur = active ? elapsedMs : (deliveredCount ? movedMs : null);
+    $("dur").textContent = shownDur != null ? (shownDur / 1000).toFixed(2) + " s" : "—";
+
+    // delivered
+    $("d_count").textContent = deliveredCount;
+    const ds = stats(dGaps);
+    const dWindow = dGaps.reduce((a, b) => a + b, 0);
+    $("d_rate").textContent = dWindow > 0 ? (dGaps.length / (dWindow / 1000)).toFixed(0) + " /s" : "—";
+    $("d_mean").textContent = ds ? fmt(ds.mean) + " ms" : "—";
+    $("d_med").textContent = ds ? fmt(ds.med) + " ms" : "—";
+    $("d_p95").textContent = ds ? fmt(ds.p95) + " ms" : "—";
+    $("d_mm").textContent = ds ? fmt(ds.min) + " / " + fmt(ds.max) : "—";
+
+    // coalesced
+    $("c_count").textContent = coalescedCount;
+    const cs = stats(cGaps);
+    const cWindow = cGaps.reduce((a, b) => a + b, 0);
+    $("c_rate").textContent = cWindow > 0 ? (cGaps.length / (cWindow / 1000)).toFixed(0) + " /s" : "—";
+    $("c_mean").textContent = cs ? fmt(cs.mean) + " ms" : "—";
+    $("c_med").textContent = cs ? fmt(cs.med) + " ms" : "—";
+    $("c_per").textContent = deliveredCount ? (coalescedCount / deliveredCount).toFixed(2) : "—";
+
+    // wheel
+    $("w_count").textContent = wDelta.length;
+    const ws = stats(wGaps);
+    const wWindow = wGaps.reduce((a, b) => a + b, 0);
+    $("w_rate").textContent = wWindow > 0 ? (wGaps.length / (wWindow / 1000)).toFixed(1) + " /s" : "—";
+    $("w_mean").textContent = ws ? fmt(ws.mean) + " ms" : "—";
+    $("w_med").textContent = ws ? fmt(ws.med) + " ms" : "—";
+    $("w_mm").textContent = ws ? fmt(ws.min) + " / " + fmt(ws.max) : "—";
+    $("w_mode").textContent = wheelMode != null ? (DELTA_MODE[wheelMode] || wheelMode) : "—";
+    const wd = stats(wDelta);
+    $("w_dy").textContent = wd ? fmt(wd.med) : "—";
+
+    drawHistogram();
+    requestAnimationFrame(render);
+  }
+
+  sizeCanvases();
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
