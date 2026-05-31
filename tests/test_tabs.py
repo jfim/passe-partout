@@ -74,3 +74,18 @@ async def test_list_tabs(client, fixture_server):
     finally:
         await client.delete(f"/tabs/{r1.json()['id']}")
         await client.delete(f"/tabs/{r2.json()['id']}")
+
+
+async def test_get_tab_title_resists_page_tampering(client):
+    html = (
+        "data:text/html,<html><head><title>real</title></head><body><script>"
+        "Object.defineProperty(document,'title',{get(){return 'HACKED'}});"
+        "</script></body></html>"
+    )
+    r = await client.post("/tabs", json={"url": html})
+    tid = r.json()["id"]
+    try:
+        got = await client.get(f"/tabs/{tid}")
+        assert got.json()["title"] == "real"
+    finally:
+        await client.delete(f"/tabs/{tid}")
