@@ -171,3 +171,43 @@ async def test_list_behaviors_includes_builtin(client):
     assert "scroll-down" in by_name
     assert by_name["scroll-down"]["source"] == "builtin"
     assert by_name["scroll-down"]["kind"] == "scroll-down"
+
+
+async def test_play_behavior_scrolls_tab(client, fixture_server):
+    import asyncio
+
+    tid = await _open(client, f"{fixture_server}/tall.html")
+    try:
+        before = await client.post(
+            f"/tabs/{tid}/eval", json={"js": "window.scrollY", "world": "isolated"}
+        )
+        assert before.json()["result"] == 0
+
+        r = await client.post(
+            f"/tabs/{tid}/behaviors/play",
+            json={"name": "scroll-down", "perturb": {"enabled": False}},
+        )
+        assert r.status_code == 204
+
+        await asyncio.sleep(0.3)
+        after = await client.post(
+            f"/tabs/{tid}/eval", json={"js": "window.scrollY", "world": "isolated"}
+        )
+        assert after.json()["result"] > 0
+    finally:
+        await _close(client, tid)
+
+
+async def test_play_behavior_unknown_tab_404(client):
+    r = await client.post("/tabs/999999/behaviors/play", json={"name": "scroll-down"})
+    assert r.status_code == 404
+
+
+async def test_play_behavior_unknown_behavior_404(client, fixture_server):
+    tid = await _open(client, f"{fixture_server}/tall.html")
+    try:
+        r = await client.post(f"/tabs/{tid}/behaviors/play", json={"name": "no-such-behavior"})
+        assert r.status_code == 404
+        assert r.json()["error"] == "behavior_not_found"
+    finally:
+        await _close(client, tid)
