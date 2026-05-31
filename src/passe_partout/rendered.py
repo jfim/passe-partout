@@ -26,6 +26,7 @@ from typing import Any
 import nodriver as uc
 
 from passe_partout import __version__
+from passe_partout.isolated import call_on_node_isolated, evaluate_isolated
 
 RENDERED_TARGETS_PROFILE = (
     "http://iipc.github.io/warc-specifications/specifications/"
@@ -87,42 +88,31 @@ async def _capture_frame_html_by_owner(tab: uc.Tab, owner_backend_node_id: int) 
     if content_backend is None:
         return None
     try:
-        return await tab.send(uc.cdp.dom.get_outer_html(backend_node_id=content_backend))
+        return await tab.send(
+            uc.cdp.dom.get_outer_html(backend_node_id=content_backend, include_shadow_dom=True)
+        )
     except Exception:
         return None
 
 
-async def _owner_selector(tab: uc.Tab, owner_backend_node_id: int) -> str | None:
-    """Generate a CSS selector for an iframe-owning element via Runtime.callFunctionOn.
+async def _owner_selector(
+    tab: uc.Tab, frame_id: uc.cdp.page.FrameId, owner_backend_node_id: int
+) -> str | None:
+    """Generate a CSS selector for an iframe-owning element via an isolated world.
 
     Returns None on any error — caller falls back to omitting the selector and
     a replayer would have to use the parentFrameId + URL heuristics.
     """
     try:
-        resolved = await tab.send(
-            uc.cdp.dom.resolve_node(backend_node_id=uc.cdp.dom.BackendNodeId(owner_backend_node_id))
+        value = await call_on_node_isolated(
+            tab,
+            frame_id,
+            uc.cdp.dom.BackendNodeId(owner_backend_node_id),
+            _OWNER_SELECTOR_FN,
+            return_by_value=True,
         )
     except Exception:
         return None
-    object_id = getattr(resolved, "object_id", None)
-    if object_id is None:
-        return None
-    try:
-        result, _ = await tab.send(
-            uc.cdp.runtime.call_function_on(
-                function_declaration=_OWNER_SELECTOR_FN,
-                object_id=object_id,
-                return_by_value=True,
-            )
-        )
-    except Exception:
-        return None
-    finally:
-        try:
-            await tab.send(uc.cdp.runtime.release_object(object_id=object_id))
-        except Exception:
-            pass
-    value = getattr(result, "value", None)
     return value if isinstance(value, str) else None
 
 
@@ -132,15 +122,17 @@ async def _capture_top_dom(tab: uc.Tab) -> str | None:
     except Exception:
         return None
     try:
-        return await tab.send(uc.cdp.dom.get_outer_html(backend_node_id=doc.backend_node_id))
+        return await tab.send(
+            uc.cdp.dom.get_outer_html(backend_node_id=doc.backend_node_id, include_shadow_dom=True)
+        )
     except Exception:
         return None
 
 
-async def _capture_screenshot_b64(tab: uc.Tab) -> str | None:
+async def _capture_screenshot_b64(tab: uc.Tab, top_frame_id: uc.cdp.page.FrameId) -> str | None:
     """Scroll to top (best effort) then capture viewport PNG, base64-encoded."""
     try:
-        await tab.send(uc.cdp.runtime.evaluate(expression="window.scrollTo(0, 0)"))
+        await evaluate_isolated(tab, top_frame_id, "window.scrollTo(0, 0)")
     except Exception:
         # Scrolling failure isn't fatal — we still get a viewport-sized screenshot,
         # just possibly not anchored at the top of the page.
@@ -163,16 +155,16 @@ async def capture_rendered_payload(tab: uc.Tab, page_title: str = "") -> dict[st
     generation failure) degrade gracefully — that frame just gets fewer fields.
     """
     started_at = _iso_now()
-    top_dom = await _capture_top_dom(tab)
-    if top_dom is None:
-        return None
-    screenshot_b64 = await _capture_screenshot_b64(tab)
-    if screenshot_b64 is None:
-        return None
-
     try:
         tree = await tab.send(uc.cdp.page.get_frame_tree())
     except Exception:
+        return None
+    top_frame_id = tree.frame.id_
+    top_dom = await _capture_top_dom(tab)
+    if top_dom is None:
+        return None
+    screenshot_b64 = await _capture_screenshot_b64(tab, top_frame_id)
+    if screenshot_b64 is None:
         return None
 
     pages: list[dict[str, Any]] = []
@@ -199,7 +191,9 @@ async def capture_rendered_payload(tab: uc.Tab, page_title: str = "") -> dict[st
             # the first element is the backendNodeId we want.
             backend_id = owner_backend[0] if isinstance(owner_backend, tuple) else owner_backend
             dom_html = await _capture_frame_html_by_owner(tab, int(backend_id))
-            owner_selector = await _owner_selector(tab, int(backend_id))
+            owner_selector = await _owner_selector(
+                tab, uc.cdp.page.FrameId(parent_frame_id), int(backend_id)
+            )
 
         entry: dict[str, Any] = {
             "id": f"frame_{frame_id}",

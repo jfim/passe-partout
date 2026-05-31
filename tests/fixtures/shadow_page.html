@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+  <head><title>shadow</title></head>
+  <body>
+    <h1>Hello</h1>
+    <div id="host"></div>
+    <script>
+      const sr = document.getElementById('host').attachShadow({ mode: 'open' });
+      sr.innerHTML = '<span class="inside">SHADOW_CONTENT</span>';
+    </script>
+  </body>
+</html>
