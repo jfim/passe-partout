@@ -20,6 +20,7 @@ from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
 from passe_partout.domsnapshot import DOM_SNAPSHOT_PROFILE, capture_dom_snapshot
 from passe_partout.downloads import DownloadCoordinator
+from passe_partout.isolated import evaluate_isolated, main_frame_id
 from passe_partout.models import (
     BrowserInfo,
     BrowserShutdownResponse,
@@ -742,7 +743,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
         async with rec.lock:
             try:
-                result = await rec.tab.evaluate(req.js)
+                if req.world == "isolated":
+                    fid = await main_frame_id(rec.tab)
+                    result = await evaluate_isolated(rec.tab, fid, req.js)
+                else:
+                    result = await rec.tab.evaluate(req.js)
             except Exception as e:
                 return JSONResponse(
                     status_code=502, content={"error": "browser_error", "detail": str(e)}

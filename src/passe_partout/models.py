@@ -145,6 +145,7 @@ class TypeRequest(BaseModel):
 
 class EvalRequest(BaseModel):
     js: Annotated[str, Field(min_length=1, max_length=JS_MAX)]
+    world: Literal["main", "isolated"] = "main"
 
 
 class EvalResponse(BaseModel):
