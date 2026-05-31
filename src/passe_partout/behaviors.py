@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from dataclasses import dataclass
 
 # (delta_x, delta_y, dt_ms): relative wheel deltas and the pause before the next step.
@@ -63,3 +64,25 @@ class BehaviorCatalog:
 
     def get(self, name: str) -> Behavior | None:
         return self._behaviors.get(name)
+
+
+def perturb_steps(
+    steps: tuple[WheelStep, ...],
+    *,
+    enabled: bool = True,
+    time_warp: float = 0.15,
+    delta_scale: float = 0.10,
+    seed: int | None = None,
+) -> list[WheelStep]:
+    """Return a jittered copy of `steps`. Each step's deltas and gap are scaled
+    by an independent factor in [1-x, 1+x] so repeated replays of the same trace
+    are never byte-identical. Deterministic for a fixed `seed`."""
+    if not enabled:
+        return list(steps)
+    rng = random.Random(seed)
+    out: list[WheelStep] = []
+    for dx, dy, dt in steps:
+        ds = 1.0 + rng.uniform(-delta_scale, delta_scale)
+        tw = 1.0 + rng.uniform(-time_warp, time_warp)
+        out.append((dx * ds, dy * ds, max(0.0, dt * tw)))
+    return out
