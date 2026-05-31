@@ -17,7 +17,7 @@ import nodriver as uc
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from passe_partout.behaviors import BehaviorCatalog
+from passe_partout.behaviors import BehaviorCatalog, perturb_steps, replay_wheel
 from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
 from passe_partout.domsnapshot import DOM_SNAPSHOT_PROFILE, capture_dom_snapshot
@@ -40,6 +40,8 @@ from passe_partout.models import (
     GotoRequest,
     GotoResponse,
     HealthResponse,
+    PerturbParams,
+    PlayBehaviorRequest,
     ResourceSummary,
     TabState,
     TabSummary,
@@ -776,6 +778,42 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     status_code=502, content={"error": "browser_error", "detail": str(e)}
                 )
         return EvalResponse(result=result)
+
+    @app.post(
+        "/tabs/{tab_id}/behaviors/play",
+        status_code=204,
+        summary="Replay a behavior (e.g. scroll burst) against the tab",
+    )
+    async def play_behavior(tab_id: int, req: PlayBehaviorRequest):
+        rec = await _require_tab(tab_id)
+        if rec is None:
+            return JSONResponse(status_code=404, content={"error": "tab_not_found", "detail": ""})
+        behavior = app.state.behaviors.get(req.name)
+        if behavior is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "behavior_not_found", "detail": req.name},
+            )
+        p = req.perturb or PerturbParams()
+        steps = perturb_steps(
+            behavior.steps,
+            enabled=p.enabled,
+            time_warp=p.time_warp if p.time_warp is not None else 0.15,
+            delta_scale=p.delta_scale if p.delta_scale is not None else 0.10,
+            seed=p.seed,
+        )
+        async with rec.lock:
+            try:
+                await replay_wheel(rec.tab, steps)
+            except Exception as e:
+                return JSONResponse(
+                    status_code=502, content={"error": "browser_error", "detail": str(e)}
+                )
+            # Bump TTL: the idle sweeper closes tabs purely on last_used_at without
+            # taking rec.lock, so a long client-driven scroll session must keep the
+            # tab alive across bursts.
+            app.state.registry.touch(tab_id)
+        return Response(status_code=204)
 
     @app.post(
         "/tabs/{tab_id}/wait",
