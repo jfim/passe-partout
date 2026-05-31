@@ -70,7 +70,6 @@ class _Locator(HTMLParser):
         self._ls = line_starts
         self._stack: list[list[Any]] = []  # [tag, child_count]
         self._path: list[int] = []
-        self.starttag_end: dict[tuple[int, ...], int] = {}
         self.element_end: dict[tuple[int, ...], int] = {}
         self.style_inner: dict[tuple[int, ...], tuple[int, int]] = {}
         self.body_end: int | None = None
@@ -89,10 +88,9 @@ class _Locator(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         path = self._enter()
-        end = self._off() + len(self.get_starttag_text() or "")
-        self.starttag_end[path] = end
         if tag == "style":
-            self._style_open = (path, end)
+            inner_start = self._off() + len(self.get_starttag_text() or "")
+            self._style_open = (path, inner_start)
         if tag in _VOID:
             if self._path:
                 self._path.pop()
@@ -100,13 +98,12 @@ class _Locator(HTMLParser):
             self._stack.append([tag, 0])
 
     def handle_startendtag(self, tag, attrs):
-        path = self._enter()
-        self.starttag_end[path] = self._off() + len(self.get_starttag_text() or "")
+        self._enter()
         if self._path:
             self._path.pop()
 
     def handle_endtag(self, tag):
-        if not self._stack:
+        if not self._stack or self._stack[-1][0] != tag:
             return
         path = tuple(self._path)
         off = self._off()
