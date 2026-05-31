@@ -84,3 +84,24 @@ def test_download_dir_from_env(monkeypatch):
     monkeypatch.setenv("DOWNLOAD_DIR", "/var/passe-partout-dl")
     cfg = Config.from_env()
     assert cfg.download_dir == "/var/passe-partout-dl"
+
+
+def test_behavior_trace_dir_set(monkeypatch, tmp_path):
+    d = tmp_path / "traces"
+    d.mkdir()
+    monkeypatch.delenv("UNPACKED_EXTENSION_DIRS", raising=False)
+    monkeypatch.setenv("BEHAVIOR_TRACE_DIR", str(d))
+    cfg = Config.from_env()
+    assert cfg.behavior_trace_dir == str(d)
+
+
+def test_behavior_trace_dir_unset(monkeypatch):
+    monkeypatch.delenv("BEHAVIOR_TRACE_DIR", raising=False)
+    assert Config.from_env().behavior_trace_dir is None
+
+
+def test_behavior_trace_dir_invalid(monkeypatch, tmp_path):
+    monkeypatch.delenv("UNPACKED_EXTENSION_DIRS", raising=False)
+    monkeypatch.setenv("BEHAVIOR_TRACE_DIR", str(tmp_path / "does-not-exist"))
+    with pytest.raises(ValueError):
+        Config.from_env()
