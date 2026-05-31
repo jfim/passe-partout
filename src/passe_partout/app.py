@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hmac
+import json
 import socket
 from contextlib import asynccontextmanager
 
@@ -337,8 +338,11 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
             )
         registry.touch(tab_id)
-        title = await rec.tab.evaluate("document.title")
-        ready = await rec.tab.evaluate("document.readyState")
+        fid = await main_frame_id(rec.tab)
+        meta = await evaluate_isolated(
+            rec.tab, fid, "JSON.stringify([document.title, document.readyState])"
+        )
+        title, ready = json.loads(meta) if meta else ["", ""]
         return TabState(url=rec.tab.url or "", title=title or "", ready_state=ready or "")
 
     async def _require_tab(tab_id: int):
