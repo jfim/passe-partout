@@ -61,13 +61,13 @@ async def call_on_node_isolated(
     *,
     return_by_value: bool = True,
 ) -> Any:
-    """Resolve `backend_node_id` into an isolated world for `frame_id`, then
-    callFunctionOn with `function_declaration` (whose `this` is the node)."""
+    """Resolve `backend_node_id` into an isolated world for `frame_id` and call
+    `function_declaration` with the node as `this`."""
     ctx = await _create_world(tab, frame_id)
     resolved = await tab.send(
         uc.cdp.dom.resolve_node(backend_node_id=backend_node_id, execution_context_id=ctx)
     )
-    object_id = getattr(resolved, "object_id", None)
+    object_id = resolved.object_id
     if object_id is None:
         raise IsolatedWorldError("resolve_node returned no object_id")
     try:

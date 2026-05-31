@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from passe_partout.isolated import (  # noqa: F401
-    call_on_node_isolated,
-    evaluate_isolated,
-    main_frame_id,
-)
+from passe_partout.isolated import evaluate_isolated, main_frame_id
 
 
 async def _tab(browser_pool):
