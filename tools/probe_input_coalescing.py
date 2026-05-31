@@ -91,8 +91,10 @@ def summarize_paced(label: str, sent: int, probe) -> None:
     per_event = total / delivered if delivered else 0.0
     coalescing = "YES" if per_event > 1.5 else "no"
     print(f"\n[{label}]  sent={sent}")
-    print(f"  delivered={delivered}  sub-samples={total}  samples/event={per_event:.2f}"
-          f"  coalescing? {coalescing}")
+    print(
+        f"  delivered={delivered}  sub-samples={total}  samples/event={per_event:.2f}"
+        f"  coalescing? {coalescing}"
+    )
 
 
 async def run_flood(tab, *, n: int, span_s: float, x0=100, y0=300):
@@ -126,8 +128,10 @@ def summarize_flood(label: str, sent: int, span_s: float, probe, send_wall: floa
     gaps = [b - a for a, b in zip(subs, subs[1:], strict=False)]
     med_gap = statistics.median(gaps) if gaps else float("nan")
 
-    print(f"\n[{label}]  sent={sent} over {span_s:.0f}s of timestamps"
-          f"  (websocket write took {send_wall * 1000:.0f} ms)")
+    print(
+        f"\n[{label}]  sent={sent} over {span_s:.0f}s of timestamps"
+        f"  (websocket write took {send_wall * 1000:.0f} ms)"
+    )
     print(f"  delivered pointermoves      : {delivered}")
     print(f"  sub-samples received        : {total}  (of {sent} sent)")
     print(f"  REAL arrival wall span      : {arrival_span:.1f} ms   <- actual delivery duration")
@@ -136,7 +140,9 @@ def summarize_flood(label: str, sent: int, span_s: float, probe, send_wall: floa
     print(f"  median sub-sample gap       : {med_gap:.3f} ms")
     print("  interpretation:")
     if arrival_span > span_s * 1000 * 0.5:
-        print(f"    -> Chrome PLAYED BACK over real wall time (~{arrival_span:.0f} ms) — scheduled delivery")
+        print(
+            f"    -> Chrome PLAYED BACK over real wall time (~{arrival_span:.0f} ms) — scheduled delivery"
+        )
     else:
         print(f"    -> Chrome delivered FAST (~{arrival_span:.0f} ms wall) — no real-time playback")
     if sub_span > span_s * 1000 * 0.5:
@@ -173,9 +179,11 @@ def summarize_frame_paced(n_per_frame: int, frames: int, probe) -> None:
     per_event = total / delivered if delivered else 0.0
     arrivals = [e[1] for e in probe]
     arr_span = (max(arrivals) - min(arrivals)) if len(arrivals) > 1 else 0.0
-    verdict = ("collapses to ~1/frame (GOOD: looks like a high-Hz mouse)"
-               if per_event >= n_per_frame * 0.6
-               else "shatters into many delivered events (CDP can't reproduce the grouping)")
+    verdict = (
+        "collapses to ~1/frame (GOOD: looks like a high-Hz mouse)"
+        if per_event >= n_per_frame * 0.6
+        else "shatters into many delivered events (CDP can't reproduce the grouping)"
+    )
     print(f"\n[frame-paced  n/frame={n_per_frame}  frames={frames}]")
     print(f"  sent={sent}  received={total}  delivered={delivered}")
     print(f"  samples/event achieved : {per_event:.2f}   (ideal {n_per_frame})")

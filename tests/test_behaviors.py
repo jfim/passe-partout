@@ -77,10 +77,7 @@ def test_perturb_stays_within_bounds():
 
 async def test_replay_wheel_scrolls_page(browser_pool):
     # inline styles (no '#') so the data: URL isn't truncated at a fragment
-    tall = (
-        'data:text/html,<body style="margin:0">'
-        '<div style="height:5000px">tall</div></body>'
-    )
+    tall = 'data:text/html,<body style="margin:0"><div style="height:5000px">tall</div></body>'
     tab = await browser_pool.create_context(tall)
     try:
         before = await tab.evaluate("window.scrollY")
