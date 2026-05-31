@@ -365,3 +365,27 @@ async def test_warc_endpoint_does_not_buffer_bodies_in_no_copy_mode(client, fixt
         )
     finally:
         await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_rendered_includes_shadow_dom(client, fixture_server):
+    import base64
+    import json
+
+    tab_id = await _open(client, f"{fixture_server}/shadow_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.5)
+        resp = await client.get(f"/tabs/{tab_id}/warc?rendered=1")
+        assert resp.status_code == 200, resp.text
+        conv = next(
+            r.content_stream().read()
+            for r in ArchiveIterator(io.BytesIO(resp.content), no_record_parse=True)
+            if r.rec_type == "conversion"
+        )
+        pages = json.loads(conv)["log"]["pages"]
+        top = next(p for p in pages if p["_passepartout_parentFrameId"] is None)
+        dom_html = base64.b64decode(top["renderedContent"]["text"]).decode("utf-8")
+        assert "shadowrootmode" in dom_html
+        assert "SHADOW_CONTENT" in dom_html
+    finally:
+        await _close(client, tab_id)
