@@ -25,6 +25,7 @@ class Config:
     # explicitly via SHARED_PROFILE=1; not inferred from extension_dirs because the
     # cross-tab cookie sharing it implies is a meaningful posture change.
     shared_profile: bool = False
+    behavior_trace_dir: str | None = None
 
     @classmethod
     def from_env(cls) -> Config:
@@ -41,6 +42,9 @@ class Config:
                 "Chrome does not run --load-extension extensions in incognito-style "
                 "contexts; set SHARED_PROFILE=1 to opt into a shared default profile."
             )
+        behavior_trace_dir = os.environ.get("BEHAVIOR_TRACE_DIR") or None
+        if behavior_trace_dir is not None and not os.path.isdir(behavior_trace_dir):
+            raise ValueError(f"BEHAVIOR_TRACE_DIR is not a directory: {behavior_trace_dir}")
         return cls(
             host=os.environ.get("HOST", "127.0.0.1"),
             port=int(os.environ.get("PORT", "8000")),
@@ -54,4 +58,5 @@ class Config:
             chrome_path=os.environ.get("CHROME_PATH") or None,
             download_dir=os.environ.get("DOWNLOAD_DIR", "/tmp"),
             shared_profile=shared_profile,
+            behavior_trace_dir=behavior_trace_dir,
         )
