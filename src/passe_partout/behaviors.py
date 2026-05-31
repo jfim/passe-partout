@@ -9,10 +9,13 @@ shipped (avoids a shared cross-client fingerprint).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import random
 from dataclasses import dataclass
+
+import nodriver as uc
 
 # (delta_x, delta_y, dt_ms): relative wheel deltas and the pause before the next step.
 WheelStep = tuple[float, float, float]
@@ -86,3 +89,23 @@ def perturb_steps(
         tw = 1.0 + rng.uniform(-time_warp, time_warp)
         out.append((dx * ds, dy * ds, max(0.0, dt * tw)))
     return out
+
+
+async def replay_wheel(
+    tab: uc.Tab,
+    steps: list[WheelStep],
+    *,
+    anchor: tuple[float, float] = (100.0, 100.0),
+) -> None:
+    """Replay wheel `steps` against `tab` via trusted CDP wheel events, paced by
+    each step's dt_ms. `anchor` is the cursor point the wheel dispatches at; any
+    point over the scrollable document works."""
+    ax, ay = anchor
+    for dx, dy, dt in steps:
+        await tab.send(
+            uc.cdp.input_.dispatch_mouse_event(
+                type_="mouseWheel", x=ax, y=ay, delta_x=dx, delta_y=dy
+            )
+        )
+        if dt > 0:
+            await asyncio.sleep(dt / 1000.0)
