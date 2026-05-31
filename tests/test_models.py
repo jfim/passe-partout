@@ -3,12 +3,15 @@ from __future__ import annotations
 import pytest
 
 from passe_partout.models import (
+    BehaviorInfo,
     CaptureMode,
     CreateTabRequest,
     CreateTabResponse,
     DownloadInfo,
     DownloadStatus,
     GotoResponse,
+    PerturbParams,
+    PlayBehaviorRequest,
 )
 
 
@@ -72,3 +75,31 @@ def test_create_tab_request_accepts_each_mode():
 def test_create_tab_request_rejects_unknown_mode():
     with pytest.raises(ValueError):
         CreateTabRequest(url="http://example.com/", capture_mode="bogus")
+
+
+def test_play_behavior_request_defaults():
+    req = PlayBehaviorRequest(name="scroll-down")
+    assert req.name == "scroll-down"
+    assert req.perturb is None
+
+
+def test_perturb_params_defaults_and_bounds():
+    p = PerturbParams()
+    assert p.enabled is True
+    assert p.time_warp is None and p.delta_scale is None and p.seed is None
+    with pytest.raises(ValueError):
+        PerturbParams(time_warp=2.0)  # > 1.0
+
+
+def test_play_behavior_request_rejects_blank_name():
+    with pytest.raises(ValueError):
+        PlayBehaviorRequest(name="")
+
+
+def test_behavior_info_roundtrip():
+    info = BehaviorInfo(name="scroll-down", kind="scroll-down", source="builtin")
+    assert info.model_dump() == {
+        "name": "scroll-down",
+        "kind": "scroll-down",
+        "source": "builtin",
+    }

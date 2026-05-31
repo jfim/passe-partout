@@ -17,6 +17,7 @@ COOKIE_NAME_MAX = 256
 COOKIE_VALUE_MAX = 4_096
 COOKIE_DOMAIN_MAX = 253
 COOKIE_PATH_MAX = 1_024
+BEHAVIOR_NAME_MAX = 128
 
 
 def _no_control_chars(v: str) -> str:
@@ -150,6 +151,24 @@ class EvalRequest(BaseModel):
 
 class EvalResponse(BaseModel):
     result: Any
+
+
+class BehaviorInfo(BaseModel):
+    name: str
+    kind: str
+    source: str
+
+
+class PerturbParams(BaseModel):
+    enabled: bool = True
+    time_warp: float | None = Field(default=None, ge=0.0, le=1.0)
+    delta_scale: float | None = Field(default=None, ge=0.0, le=1.0)
+    seed: int | None = None
+
+
+class PlayBehaviorRequest(BaseModel):
+    name: Annotated[str, Field(min_length=1, max_length=BEHAVIOR_NAME_MAX), NoControl]
+    perturb: PerturbParams | None = None
 
 
 class WaitRequest(BaseModel):
