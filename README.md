@@ -11,8 +11,8 @@ Many websites reject plain HTTP clients (eg. curl, requests), and even if not ou
 ### Docker (recommended)
 
 ```bash
-docker pull ghcr.io/jfim/passe-partout:0.5
-docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.5
+docker pull ghcr.io/jfim/passe-partout:0.6
+docker run --rm -p 8000:8000 ghcr.io/jfim/passe-partout:0.6
 ```
 
 The image listens on `0.0.0.0:8000`, runs Chrome for Testing headless under tini as a non-root user, and exposes a `/healthz` healthcheck. Chrome for Testing is bundled instead of Chromium because Google Chrome stable rejects `--load-extension` (breaking `UNPACKED_EXTENSION_DIRS`); CfT mirrors stable behavior closely while keeping the automation switches honored.
@@ -39,12 +39,12 @@ docker run --rm -p 8000:8000 \
     -v /path/to/ext1:/extensions/ext1 \
     -v /path/to/ext2:/extensions/ext2 \
     -e UNPACKED_EXTENSION_DIRS=/extensions/ext1:/extensions/ext2 \
-    ghcr.io/jfim/passe-partout:0.5
+    ghcr.io/jfim/passe-partout:0.6
 ```
 
 To run Chromium under a virtual display instead of headless (better for some extensions and bot-detection bypasses), set `USE_XVFB=1`:
 
-    docker run --rm -p 8000:8000 -e USE_XVFB=1 ghcr.io/jfim/passe-partout:0.5
+    docker run --rm -p 8000:8000 -e USE_XVFB=1 ghcr.io/jfim/passe-partout:0.6
 
 ### From source
 
