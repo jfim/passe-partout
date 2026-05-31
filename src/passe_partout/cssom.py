@@ -103,6 +103,8 @@ class _Locator(HTMLParser):
             self._path.pop()
 
     def handle_endtag(self, tag):
+        # CDP output is well-formed, so end tags always match the open element;
+        # this guard is purely defensive against unexpected/malformed input.
         if not self._stack or self._stack[-1][0] != tag:
             return
         path = tuple(self._path)

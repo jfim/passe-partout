@@ -338,10 +338,15 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 content={"error": "tab_not_found", "detail": f"no tab with id {tab_id}"},
             )
         registry.touch(tab_id)
-        fid = await main_frame_id(rec.tab)
-        meta = await evaluate_isolated(
-            rec.tab, fid, "JSON.stringify([document.title, document.readyState])"
-        )
+        try:
+            fid = await main_frame_id(rec.tab)
+            meta = await evaluate_isolated(
+                rec.tab, fid, "JSON.stringify([document.title, document.readyState])"
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=502, content={"error": "browser_error", "detail": str(e)}
+            )
         title, ready = json.loads(meta) if meta else ["", ""]
         return TabState(url=rec.tab.url or "", title=title or "", ready_state=ready or "")
 
