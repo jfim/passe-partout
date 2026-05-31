@@ -425,3 +425,97 @@ async def test_warc_rendered_includes_shadow_dom(client, fixture_server):
         assert "SHADOW_CONTENT" in dom_html
     finally:
         await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_fold_cssom_max_attempts_zero_forces_fallback(client, fixture_server):
+    """max_attempts=0 deterministically skips splicing and dumps the sheets,
+    without needing a flaky DOM-churn fixture."""
+    from passe_partout.cssom import fold_cssom
+    from passe_partout.isolated import main_frame_id
+    from passe_partout.rendered import _capture_top_dom
+
+    tab_id = await _open(client, f"{fixture_server}/cssom_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.5)
+        rec = client._transport.app.state.registry.get(tab_id)
+        fid = await main_frame_id(rec.tab)
+
+        async def serialize():
+            return await _capture_top_dom(rec.tab)
+
+        html, fallback = await fold_cssom(rec.tab, fid, serialize, max_attempts=0)
+
+        assert html is not None and "<html" in html.lower()
+        # Skipping the splice forces the CSSOM into the fallback dump, scope-tagged.
+        assert fallback, "max_attempts=0 must force a fallback dump"
+        for s in fallback:
+            assert set(s) == {"scope", "shadowHostSelector", "order", "css"}
+            assert isinstance(s["order"], int)
+        all_css = "\n".join(s["css"] for s in fallback)
+        assert ".docadopt" in all_css  # document-level adopted sheet captured
+        shadow = [s for s in fallback if s["scope"] == "shadow"]
+        assert shadow and all(s["shadowHostSelector"] for s in shadow)
+        assert any(".shadopt" in s["css"] or ".shinline" in s["css"] for s in shadow)
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_rendered_cssom_fallback_record_emitted_when_forced(client, fixture_server):
+    import json
+
+    tab_id = await _open(client, f"{fixture_server}/cssom_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?rendered=1&cssom_max_attempts=0")
+        assert resp.status_code == 200, resp.text
+
+        conv: dict[str, tuple[dict, bytes]] = {}
+        responses: list[tuple[dict, bytes]] = []
+        for r in ArchiveIterator(io.BytesIO(resp.content), no_record_parse=True):
+            headers = dict(r.rec_headers.headers)
+            body = r.content_stream().read()
+            if r.rec_type == "conversion":
+                conv[headers.get("WARC-Profile", "")] = (headers, body)
+            elif r.rec_type == "response":
+                responses.append((headers, body))
+
+        # The rendered-targets record is still emitted alongside the fallback.
+        assert any("warc-rendered-targets" in p for p in conv)
+        fb_profile = next(p for p in conv if "cssom-fallback" in p)
+        fb_headers, fb_body = conv[fb_profile]
+        assert fb_headers["Content-Type"] == "application/json"
+        main_doc_uri = f"{fixture_server}/cssom_page.html"
+        main_resp = next(h for h, _ in responses if h.get("WARC-Target-URI") == main_doc_uri)
+        assert fb_headers["WARC-Refers-To"] == main_resp["WARC-Record-ID"]
+
+        payload = json.loads(fb_body)
+        assert payload["version"] == "1.0"
+        frames = payload["frames"]
+        assert frames and "frameId" in frames[0]
+        sheets = frames[0]["sheets"]
+        assert sheets
+        assert {"scope", "shadowHostSelector", "order", "css"} == set(sheets[0])
+        assert any(s["scope"] == "document" for s in sheets)
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
+async def test_warc_rendered_no_cssom_fallback_on_happy_path(client, fixture_server):
+    """Default attempts on a static page fold inline and emit NO fallback record."""
+    tab_id = await _open(client, f"{fixture_server}/cssom_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?rendered=1")
+        assert resp.status_code == 200, resp.text
+        profiles = [
+            r.rec_headers.get_header("WARC-Profile")
+            for r in ArchiveIterator(io.BytesIO(resp.content))
+            if r.rec_type == "conversion"
+        ]
+        assert any("warc-rendered-targets" in (p or "") for p in profiles)
+        assert not any("cssom-fallback" in (p or "") for p in profiles)
+    finally:
+        await _close(client, tab_id)

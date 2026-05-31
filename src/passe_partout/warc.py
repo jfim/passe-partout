@@ -65,6 +65,8 @@ def build_warc(
     dom_snapshot_payload: dict[str, Any] | None = None,
     dom_snapshot_profile: str | None = None,
     computed_styles: list[str] | None = None,
+    cssom_fallback_payload: dict[str, Any] | None = None,
+    cssom_fallback_profile: str | None = None,
 ) -> bytes:
     writer = BufferWARCWriter(gzip=False)
 
@@ -174,6 +176,26 @@ def build_warc(
             warc_headers["WARC-Profile"] = dom_snapshot_profile
         if computed_styles:
             warc_headers["X-Passe-Partout-Computed-Styles"] = ",".join(computed_styles)
+        conv_record = writer.create_warc_record(
+            uri=main_doc_uri or "",
+            record_type="conversion",
+            payload=io.BytesIO(body),
+            length=len(body),
+            warc_content_type="application/json",
+            warc_headers_dict=warc_headers,
+        )
+        writer.write_record(conv_record)
+
+    # CSSOM fallback conversion record: sheets that couldn't be folded inline,
+    # for viewer-side end-of-scope reinjection. Same dangling-reference guard.
+    if cssom_fallback_payload is not None and main_doc_record_id is not None:
+        body = json.dumps(cssom_fallback_payload).encode("utf-8")
+        warc_headers = {
+            "WARC-Date": main_doc_date or _iso(rec.created_at),
+            "WARC-Refers-To": main_doc_record_id,
+        }
+        if cssom_fallback_profile:
+            warc_headers["WARC-Profile"] = cssom_fallback_profile
         conv_record = writer.create_warc_record(
             uri=main_doc_uri or "",
             record_type="conversion",

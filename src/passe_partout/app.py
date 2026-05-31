@@ -49,7 +49,11 @@ from passe_partout.models import (
     WaitRequest,
 )
 from passe_partout.nav_capture import NavCapture
-from passe_partout.rendered import RENDERED_TARGETS_PROFILE, capture_rendered_payload
+from passe_partout.rendered import (
+    CSSOM_FALLBACK_PROFILE,
+    RENDERED_TARGETS_PROFILE,
+    capture_rendered_payload,
+)
 from passe_partout.resources import ResourceRecorder
 from passe_partout.tab_registry import TabRegistry
 from passe_partout.warc import build_warc
@@ -482,6 +486,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         computed_styles: str = "",
         dom_rects: bool = False,
         paint_order: bool = False,
+        cssom_max_attempts: int | None = None,
     ):
         rec = await _require_tab(tab_id)
         if rec is None:
@@ -513,6 +518,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     except Exception:
                         pass
             rendered_payload: dict | None = None
+            cssom_fallback_payload: dict | None = None
             dom_snapshot_payload: dict | None = None
             main_doc_request_id: str | None = None
             styles_list = [s.strip() for s in computed_styles.split(",") if s.strip()]
@@ -532,7 +538,9 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                     page_title = getattr(rec.tab, "title", "") or ""
                 except Exception:
                     page_title = ""
-                rendered_payload = await capture_rendered_payload(rec.tab, page_title=page_title)
+                rendered_payload, cssom_fallback_payload = await capture_rendered_payload(
+                    rec.tab, page_title=page_title, cssom_max_attempts=cssom_max_attempts
+                )
             if domsnapshot and main_doc_request_id is not None:
                 dom_snapshot_payload = await capture_dom_snapshot(
                     rec.tab,
@@ -552,6 +560,8 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 dom_snapshot_payload=dom_snapshot_payload,
                 dom_snapshot_profile=DOM_SNAPSHOT_PROFILE,
                 computed_styles=styles_list,
+                cssom_fallback_payload=cssom_fallback_payload,
+                cssom_fallback_profile=CSSOM_FALLBACK_PROFILE,
             )
         filename = f"tab-{tab_id}-{current_loader or 'noloader'}.warc"
         return Response(

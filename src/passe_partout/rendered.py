@@ -34,6 +34,13 @@ RENDERED_TARGETS_PROFILE = (
     "warc-rendered-targets/warc-rendered-targets-1.0/"
 )
 
+# Conversion record carrying CSSOM sheets that could not be folded inline because
+# the extraction walk and the serialized HTML stayed inconsistent across retries.
+# Emitted only when at least one frame fell back; the viewer reinjects each sheet
+# at end-of-scope. See docs/superpowers/specs/2026-05-31-cssom-fold-robustness-design.md
+CSSOM_FALLBACK_PROFILE = "urn:passe-partout:warc:cssom-fallback:1.0"
+CSSOM_FALLBACK_VERSION = "1.0"
+
 # JS that walks up from `this` to <html> emitting an :nth-of-type-disambiguated
 # CSS selector. Generated selectors are absolute from <html>, idempotent, and
 # unique by construction even when iframes share tag/id/class.
@@ -150,35 +157,49 @@ def _b64(text: str | bytes) -> str:
     return base64.b64encode(text).decode("ascii")
 
 
-async def capture_rendered_payload(tab: uc.Tab, page_title: str = "") -> dict[str, Any] | None:
-    """Return the HAR-shaped rendered-targets JSON for the tab, or None on
-    top-level failure. Per-frame failures (sub-frame DOM unreachable, selector
-    generation failure) degrade gracefully — that frame just gets fewer fields.
+async def capture_rendered_payload(
+    tab: uc.Tab, page_title: str = "", cssom_max_attempts: int | None = None
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Return `(rendered_payload, cssom_fallback)` for the tab.
+
+    `rendered_payload` is the HAR-shaped rendered-targets JSON, or None on
+    top-level failure. `cssom_fallback` is `{"version", "frames":[...]}` listing
+    sheets that could not be folded inline (or None when every frame folded).
+
+    The screenshot is taken up front (its scroll-to-top must not land between a
+    frame's HTML serialization and its CSSOM walk); each frame's `fold_cssom`
+    then serializes the DOM and extracts the CSSOM as an adjacent, consistent
+    pair, retrying on mismatch. `cssom_max_attempts` caps those attempts (`0`
+    forces the fallback dump — see `fold_cssom`). Per-frame failures degrade
+    gracefully — only the top frame is mandatory.
     """
     started_at = _iso_now()
     try:
         tree = await tab.send(uc.cdp.page.get_frame_tree())
     except Exception:
-        return None
+        return None, None
     top_frame_id = tree.frame.id_
-    top_dom = await _capture_top_dom(tab)
-    if top_dom is None:
-        return None
     screenshot_b64 = await _capture_screenshot_b64(tab, top_frame_id)
     if screenshot_b64 is None:
-        return None
+        return None, None
 
     pages: list[dict[str, Any]] = []
+    fallback_frames: list[dict[str, Any]] = []
+    top_failed = False
 
     async def walk(node, parent_frame_id: str | None) -> None:
+        nonlocal top_failed
         frame = node.frame
         frame_id = str(frame.id_)
         loader_id = str(getattr(frame, "loader_id", "") or "")
         url = str(getattr(frame, "url", "") or "")
 
         if parent_frame_id is None:
-            # Top frame — DOM already captured above.
-            dom_html = top_dom
+
+            async def _serialize_top() -> str | None:
+                return await _capture_top_dom(tab)
+
+            serialize = _serialize_top
             owner_selector = None
         else:
             try:
@@ -191,13 +212,26 @@ async def capture_rendered_payload(tab: uc.Tab, page_title: str = "") -> dict[st
             # get_frame_owner returns a tuple (backend_node_id, node_id?) in nodriver;
             # the first element is the backendNodeId we want.
             backend_id = owner_backend[0] if isinstance(owner_backend, tuple) else owner_backend
-            dom_html = await _capture_frame_html_by_owner(tab, int(backend_id))
+
+            async def _serialize_child(b: int = int(backend_id)) -> str | None:
+                return await _capture_frame_html_by_owner(tab, b)
+
+            serialize = _serialize_child
             owner_selector = await _owner_selector(
                 tab, uc.cdp.page.FrameId(parent_frame_id), int(backend_id)
             )
 
-        if dom_html is not None:
-            dom_html = await fold_cssom(tab, uc.cdp.page.FrameId(frame_id), dom_html)
+        dom_html, fallback_sheets = await fold_cssom(
+            tab, uc.cdp.page.FrameId(frame_id), serialize, max_attempts=cssom_max_attempts
+        )
+
+        if parent_frame_id is None and dom_html is None:
+            # All-or-nothing: a missing top-level DOM aborts the whole record.
+            top_failed = True
+            return
+
+        if fallback_sheets:
+            fallback_frames.append({"frameId": frame_id, "sheets": fallback_sheets})
 
         entry: dict[str, Any] = {
             "id": f"frame_{frame_id}",
@@ -231,11 +265,17 @@ async def capture_rendered_payload(tab: uc.Tab, page_title: str = "") -> dict[st
             await walk(child, frame_id)
 
     await walk(tree, None)
+    if top_failed:
+        return None, None
 
-    return {
+    payload = {
         "log": {
             "version": "1.2",
             "creator": {"name": "passe-partout", "version": __version__},
             "pages": pages,
         }
     }
+    cssom_fallback = (
+        {"version": CSSOM_FALLBACK_VERSION, "frames": fallback_frames} if fallback_frames else None
+    )
+    return payload, cssom_fallback
