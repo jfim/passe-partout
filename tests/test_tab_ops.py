@@ -1,6 +1,3 @@
-import pytest
-
-
 async def _open(client, url: str, mode: str = "copy") -> int:
     r = await client.post("/tabs", json={"url": url, "capture_mode": mode})
     assert r.status_code == 200, r.text
@@ -153,7 +150,6 @@ async def test_wait_requires_one_condition(client, fixture_server):
         await client.delete(f"/tabs/{tid}")
 
 
-@pytest.mark.asyncio
 async def test_eval_world_isolated_ignores_page_globals(client, fixture_server):
     tid = await _open(client, f"{fixture_server}/js.html")
     try:
