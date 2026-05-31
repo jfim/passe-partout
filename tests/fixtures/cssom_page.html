@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>cssom</title>
+    <style id="mut">.base{color:rgb(1,2,3)}</style>
+  </head>
+  <body>
+    <h1 class="base">Hi</h1>
+    <div id="host"></div>
+    <div id="lighthost">light</div>
+    <script>
+      document.getElementById('mut').sheet.insertRule('.injected{color:rgb(4,5,6)}', 1);
+
+      const ds = new CSSStyleSheet();
+      ds.replaceSync('.docadopt{font-size:11px}');
+      document.adoptedStyleSheets = [ds];
+
+      const sr = document.getElementById('host').attachShadow({ mode: 'open' });
+      sr.innerHTML = '<style>.shinline{margin:1px}</style><span>shadow</span>';
+      const ss = new CSSStyleSheet();
+      ss.replaceSync('.shadopt{padding:3px}');
+      sr.adoptedStyleSheets = [ss];
+
+      const lh = document.getElementById('lighthost');
+      lh.attachShadow({ mode: 'open' }).innerHTML = '<style>.lr{border:0}</style>';
+      const ls = document.createElement('style');
+      lh.appendChild(ls);
+      ls.sheet.insertRule('.lightinjected{color:rgb(7,8,9)}', 0);
+    </script>
+  </body>
+</html>
