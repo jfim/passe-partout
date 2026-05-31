@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from passe_partout.behaviors import BehaviorCatalog
+from passe_partout.behaviors import BehaviorCatalog, perturb_steps
 
 
 def test_builtin_scroll_down_present():
@@ -46,3 +46,24 @@ def test_non_json_files_ignored(tmp_path):
     (tmp_path / "README.txt").write_text("not a trace")
     cat = BehaviorCatalog.load(str(tmp_path))
     assert {b.name for b in cat.list()} == {"scroll-down"}
+
+
+def test_perturb_disabled_is_passthrough():
+    steps = ((0.0, 120.0, 16.0), (0.0, 120.0, 16.0))
+    assert perturb_steps(steps, enabled=False) == list(steps)
+
+
+def test_perturb_is_deterministic_with_seed():
+    steps = tuple((0.0, 120.0, 16.0) for _ in range(5))
+    a = perturb_steps(steps, seed=7)
+    b = perturb_steps(steps, seed=7)
+    assert a == b
+    assert any(o != s for o, s in zip(a, steps))  # actually perturbed
+
+
+def test_perturb_stays_within_bounds():
+    steps = ((0.0, 100.0, 10.0),)
+    dx, dy, dt = perturb_steps(steps, time_warp=0.2, delta_scale=0.1, seed=1)[0]
+    assert 90.0 <= dy <= 110.0
+    assert 8.0 <= dt <= 12.0
+    assert dt >= 0.0
