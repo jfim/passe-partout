@@ -267,6 +267,68 @@ def test_dom_snapshot_skipped_when_main_doc_not_in_resources():
     assert "conversion" not in types
 
 
+def test_content_encoding_renamed_to_x_orig():
+    # CDP hands back already-decoded bodies; the verbatim content-encoding header
+    # would otherwise mislead a replayer into re-decoding plain bytes.
+    r = _make_record(
+        response_headers={"content-type": "text/html", "content-encoding": "gzip"},
+        body=b"<html>decoded</html>",
+    )
+    tab = _make_tab_record([r])
+    blob = build_warc(tab, current_loader_id="loader-A", hostname="testhost")
+    response = next(r for r in ArchiveIterator(io.BytesIO(blob)) if r.rec_type == "response")
+    http = response.http_headers
+    assert http.get_header("content-encoding") is None
+    assert http.get_header("x-orig-content-encoding") == "gzip"
+
+
+def test_transfer_encoding_renamed_to_x_orig():
+    r = _make_record(
+        response_headers={"content-type": "text/html", "transfer-encoding": "chunked"},
+        body=b"<html>hi</html>",
+    )
+    tab = _make_tab_record([r])
+    blob = build_warc(tab, current_loader_id="loader-A", hostname="testhost")
+    response = next(r for r in ArchiveIterator(io.BytesIO(blob)) if r.rec_type == "response")
+    http = response.http_headers
+    assert http.get_header("transfer-encoding") is None
+    assert http.get_header("x-orig-transfer-encoding") == "chunked"
+
+
+def test_content_length_set_to_decoded_body_length():
+    body = b"<html>this is the decoded body</html>"
+    r = _make_record(
+        response_headers={
+            "content-type": "text/html",
+            "content-encoding": "gzip",
+            "content-length": "20",  # compressed wire length, wrong for stored bytes
+        },
+        body=body,
+    )
+    tab = _make_tab_record([r])
+    blob = build_warc(tab, current_loader_id="loader-A", hostname="testhost")
+    response = next(r for r in ArchiveIterator(io.BytesIO(blob)) if r.rec_type == "response")
+    assert response.http_headers.get_header("content-length") == str(len(body))
+
+
+def test_content_length_added_when_absent():
+    body = b"<html>hi</html>"
+    r = _make_record(response_headers={"content-type": "text/html"}, body=body)
+    tab = _make_tab_record([r])
+    blob = build_warc(tab, current_loader_id="loader-A", hostname="testhost")
+    response = next(r for r in ArchiveIterator(io.BytesIO(blob)) if r.rec_type == "response")
+    assert response.http_headers.get_header("content-length") == str(len(body))
+
+
+def test_warcinfo_records_decoded_body_marker():
+    r = _make_record()
+    tab = _make_tab_record([r])
+    blob = build_warc(tab, current_loader_id="loader-A", hostname="testhost")
+    info = next(r for r in ArchiveIterator(io.BytesIO(blob)) if r.rec_type == "warcinfo")
+    fields = info.content_stream().read().decode("utf-8")
+    assert "X-Passe-Partout-Body: decoded" in fields
+
+
 def test_rendered_and_dom_snapshot_emit_two_conversion_records():
     main = _make_record(request_id="main", loader_id="loader-A", url="http://example.com/page")
     tab = _make_tab_record([main])

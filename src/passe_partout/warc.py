@@ -37,6 +37,36 @@ def _headers_to_list(h: dict[str, str]) -> list[tuple[str, str]]:
     return [(k, v) for k, v in h.items()]
 
 
+# Headers that describe wire-transfer encoding of bytes we no longer hold.
+_DECODED_BODY_HEADERS = ("content-encoding", "transfer-encoding")
+
+
+def _response_headers_to_list(headers: dict[str, str], stored_length: int) -> list[tuple[str, str]]:
+    """Reconcile verbatim wire response headers with the decoded body we stored.
+
+    CDP hands back bodies Chrome already decoded, but the response headers are the
+    raw wire headers — so content-encoding/transfer-encoding and the compressed
+    Content-Length describe bytes we no longer hold. Rename the encoding headers to
+    inert ``x-orig-*`` breadcrumbs (preserve provenance without telling a replayer
+    to re-decode plain bytes) and restate Content-Length as the stored length. This
+    matches the ArchiveWeb.page/har2warc convention for browser-captured WARCs.
+    """
+    out: list[tuple[str, str]] = []
+    had_content_length = False
+    for k, v in headers.items():
+        lk = k.lower()
+        if lk in _DECODED_BODY_HEADERS:
+            out.append((f"x-orig-{lk}", v))
+        elif lk == "content-length":
+            out.append((k, str(stored_length)))
+            had_content_length = True
+        else:
+            out.append((k, v))
+    if not had_content_length:
+        out.append(("Content-Length", str(stored_length)))
+    return out
+
+
 def _select(
     resources: dict[str, ResourceRecord],
     current_loader_id: str,
@@ -78,6 +108,7 @@ def build_warc(
             "conformsTo": _WARC_SPEC_URL,
             "hostname": hostname,
             "isPartOf": f"tab-{rec.id}",
+            "X-Passe-Partout-Body": "decoded",
         },
     )
     writer.write_record(info_record)
@@ -107,13 +138,9 @@ def build_warc(
         )
         writer.write_record(req_record)
 
-        # Response record
-        status_line = f"{r.status} {r.status_text}".strip() or str(r.status)
-        resp_headers = StatusAndHeaders(
-            status_line,
-            _headers_to_list(r.response_headers),
-            protocol="HTTP/1.1",
-        )
+        # Response record. Resolve the stored body first so the HTTP headers can be
+        # made consistent with the decoded bytes we actually hold (see
+        # _response_headers_to_list).
         warc_headers: dict[str, str] = {
             "WARC-Date": warc_date,
             "WARC-Concurrent-To": req_record.rec_headers.get_header("WARC-Record-ID"),
@@ -128,6 +155,12 @@ def build_warc(
             payload_bytes = b""
         else:
             payload_bytes = body
+        status_line = f"{r.status} {r.status_text}".strip() or str(r.status)
+        resp_headers = StatusAndHeaders(
+            status_line,
+            _response_headers_to_list(r.response_headers, len(payload_bytes)),
+            protocol="HTTP/1.1",
+        )
         resp_record = writer.create_warc_record(
             uri=r.url,
             record_type="response",
