@@ -61,6 +61,47 @@ async def test_goto(client, fixture_server):
         await client.delete(f"/tabs/{tid}")
 
 
+async def test_create_tab_sends_referrer(client, fixture_server):
+    # Same-origin referrer so the default referrer policy sends the full URL.
+    referrer = f"{fixture_server}/came-from"
+    r = await client.post(
+        "/tabs", json={"url": f"{fixture_server}/echo-referer", "referrer": referrer}
+    )
+    assert r.status_code == 200, r.text
+    tid = r.json()["id"]
+    try:
+        seen = await client.post(f"/tabs/{tid}/eval", json={"js": "document.body.dataset.referer"})
+        assert seen.json()["result"] == referrer
+    finally:
+        await client.delete(f"/tabs/{tid}")
+
+
+async def test_create_tab_without_referrer_sends_none(client, fixture_server):
+    r = await client.post("/tabs", json={"url": f"{fixture_server}/echo-referer"})
+    tid = r.json()["id"]
+    try:
+        seen = await client.post(f"/tabs/{tid}/eval", json={"js": "document.body.dataset.referer"})
+        assert seen.json()["result"] == ""
+    finally:
+        await client.delete(f"/tabs/{tid}")
+
+
+async def test_goto_sends_referrer(client, fixture_server):
+    referrer = f"{fixture_server}/came-from-goto"
+    r = await client.post("/tabs", json={"url": f"{fixture_server}/static.html"})
+    tid = r.json()["id"]
+    try:
+        r = await client.post(
+            f"/tabs/{tid}/goto",
+            json={"url": f"{fixture_server}/echo-referer", "referrer": referrer},
+        )
+        assert r.status_code == 200, r.text
+        seen = await client.post(f"/tabs/{tid}/eval", json={"js": "document.body.dataset.referer"})
+        assert seen.json()["result"] == referrer
+    finally:
+        await client.delete(f"/tabs/{tid}")
+
+
 async def test_eval_and_click(client, fixture_server):
     r = await client.post("/tabs", json={"url": f"{fixture_server}/static.html"})
     tid = r.json()["id"]

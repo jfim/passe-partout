@@ -67,6 +67,11 @@ async def fixture_server():
         await resp.write_eof()
         return resp
 
+    async def echo_referer_handler(request: web.Request) -> web.Response:
+        referer = request.headers.get("Referer", "")
+        body = f'<!doctype html><html><body data-referer="{referer}">ok</body></html>'
+        return web.Response(body=body.encode(), content_type="text/html")
+
     async def redirect_handler(_request: web.Request) -> web.Response:
         return web.Response(status=302, headers={"Location": "/static.html"})
 
@@ -79,6 +84,7 @@ async def fixture_server():
     app.router.add_get("/sample.png", png_handler)
     app.router.add_get("/data.json", json_handler)
     app.router.add_get("/slow.bin", slow_binary_handler)
+    app.router.add_get("/echo-referer", echo_referer_handler)
     app.router.add_get("/redirect-to-static", redirect_handler)
     app.router.add_get("/redirect-chain", redirect_chain_handler)
     runner = web.AppRunner(app)

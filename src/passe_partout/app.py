@@ -292,7 +292,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 cdp_cookies = _cookies_to_cdp(req.cookies, url=req.url)
                 await tab.send(uc.cdp.network.set_cookies(cdp_cookies))
             nav.reset()
-            await tab.get(req.url)
+            await tab.send(uc.cdp.page.navigate(req.url, referrer=req.referrer))
             await nav.wait()
             if nav.status is None and req.url.lower().startswith(("http://", "https://")):
                 raise RuntimeError(f"no response captured for {req.url}")
@@ -311,7 +311,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 content={"error": "browser_error", "detail": str(e)},
             )
 
-        final_url = tab.url or req.url
+        final_url = nav.url or tab.url or req.url
         download_info = None
         dl_first = await _wait_for_first_download(rec)
         if dl_first is not None:
@@ -709,7 +709,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             try:
                 if rec.nav is not None:
                     rec.nav.reset()
-                await rec.tab.get(req.url)
+                await rec.tab.send(uc.cdp.page.navigate(req.url, referrer=req.referrer))
                 if rec.nav is not None:
                     await rec.nav.wait()
                 if (
@@ -726,7 +726,8 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
         ctype = rec.nav.mime_type if rec.nav else None
 
         new_dl = await _wait_for_first_download(rec, baseline=pre_existing)
-        final_url = new_dl.url if new_dl is not None else (rec.tab.url or req.url)
+        nav_url = rec.nav.url if rec.nav else None
+        final_url = new_dl.url if new_dl is not None else (nav_url or rec.tab.url or req.url)
         download_info = (
             DownloadInfo(id=new_dl.id, filename=new_dl.filename, size_bytes=new_dl.size_bytes)
             if new_dl is not None
