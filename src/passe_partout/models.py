@@ -68,6 +68,7 @@ class Cookie(BaseModel):
 
 class CreateTabRequest(BaseModel):
     url: URLStr
+    referrer: URLStr | None = None
     cookies: list[Cookie] | None = None
     ttl_seconds: int | None = None
     capture_mode: CaptureMode = CaptureMode.NO_COPY
@@ -126,6 +127,7 @@ class FetchResponse(BaseModel):
 
 class GotoRequest(BaseModel):
     url: URLStr
+    referrer: URLStr | None = None
 
 
 class GotoResponse(BaseModel):
