@@ -13,6 +13,14 @@ import nodriver as uc
 
 from passe_partout.config import Config
 
+# With --load-extension, extensions open their own tabs on first launch and the
+# browser's compositor/input pipeline needs a few seconds to warm up. Until it
+# does, the first trusted CDP wheel event sent to a fresh tab can wedge: Chrome
+# never acks it, MouseWheelEventQueue stalls, and Input.dispatchMouseEvent hangs
+# forever. Empirically a ~5s settle after a cold start clears it (0/5 wedges vs
+# 5/5 without). One-time cost per cold start; only when extensions are loaded.
+_EXTENSION_COLD_START_SETTLE_SECONDS = 5.0
+
 
 class BrowserPool:
     def __init__(self, cfg: Config) -> None:
@@ -42,6 +50,8 @@ class BrowserPool:
         if self.cfg.chrome_path:
             start_kwargs["browser_executable_path"] = self.cfg.chrome_path
         self._browser = await uc.start(**start_kwargs)
+        if self.cfg.extension_dirs:
+            await asyncio.sleep(_EXTENSION_COLD_START_SETTLE_SECONDS)
 
     async def stop(self) -> None:
         async with self._lock:

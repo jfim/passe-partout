@@ -58,6 +58,11 @@ from passe_partout.resources import ResourceRecorder
 from passe_partout.tab_registry import TabRegistry
 from passe_partout.warc import build_warc
 
+# After a navigation completes, let the tab settle briefly before returning.
+# Smooths over input/compositor timing races on freshly-created tabs (the related
+# cold-browser case is handled by browser_pool's extension cold-start settle).
+_POST_NAV_SETTLE_SECONDS = 0.5
+
 
 async def _wait_for_first_download(rec, baseline: set[str] | None = None):
     """Briefly poll for a download that appeared after ``baseline`` (~0.5s).
@@ -296,6 +301,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
             await nav.wait()
             if nav.status is None and req.url.lower().startswith(("http://", "https://")):
                 raise RuntimeError(f"no response captured for {req.url}")
+            await asyncio.sleep(_POST_NAV_SETTLE_SECONDS)
         except Exception as e:
             if rec is not None:
                 registry.remove(rec.id)

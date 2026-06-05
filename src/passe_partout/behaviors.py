@@ -96,16 +96,35 @@ async def replay_wheel(
     steps: list[WheelStep],
     *,
     anchor: tuple[float, float] = (100.0, 100.0),
+    send_timeout: float = 0.5,
 ) -> None:
     """Replay wheel `steps` against `tab` via trusted CDP wheel events, paced by
     each step's dt_ms. `anchor` is the cursor point the wheel dispatches at; any
-    point over the scrollable document works."""
+    point over the scrollable document works.
+
+    Each dispatch is bounded by `send_timeout`. `Input.dispatchMouseEvent` only
+    returns once the renderer acks the wheel event; on a wedged tab (cold
+    browser / extensions) that ack never comes and the send would otherwise hang
+    forever holding the caller's lock. The send is `shield`ed so the timeout does
+    NOT cancel the in-flight transaction — cancelling it would make nodriver's
+    listener set_result on a cancelled future and die, wedging the whole
+    connection. On timeout we just move on: the wheel event still dispatches, so
+    a transient slow ack still scrolls; a hard wedge scrolls nothing, which the
+    client detects (scrollY) and recovers by recreating the tab."""
     ax, ay = anchor
     for dx, dy, dt in steps:
-        await tab.send(
-            uc.cdp.input_.dispatch_mouse_event(
-                type_="mouseWheel", x=ax, y=ay, delta_x=dx, delta_y=dy
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(
+                    tab.send(
+                        uc.cdp.input_.dispatch_mouse_event(
+                            type_="mouseWheel", x=ax, y=ay, delta_x=dx, delta_y=dy
+                        )
+                    )
+                ),
+                timeout=send_timeout,
             )
-        )
+        except TimeoutError:
+            pass
         if dt > 0:
             await asyncio.sleep(dt / 1000.0)
