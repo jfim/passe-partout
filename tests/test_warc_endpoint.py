@@ -215,6 +215,34 @@ async def test_warc_endpoint_rendered_captures_iframe_dom(client, fixture_server
 
 
 @pytest.mark.asyncio
+async def test_warc_endpoint_rendered_screenshot_opt_out(client, fixture_server):
+    """`?rendered=1&screenshot=0` → rendered DOM record, but no screenshot."""
+    import base64
+    import json
+
+    tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
+    try:
+        await asyncio.sleep(0.6)
+        resp = await client.get(f"/tabs/{tab_id}/warc?rendered=1&screenshot=0")
+        assert resp.status_code == 200, resp.text
+        conv = next(
+            (dict(r.rec_headers.headers), r.content_stream().read())
+            for r in ArchiveIterator(io.BytesIO(resp.content), no_record_parse=True)
+            if r.rec_type == "conversion"
+        )
+        payload = json.loads(conv[1])
+        pages = payload["log"]["pages"]
+        top = next(p for p in pages if p["_passepartout_parentFrameId"] is None)
+        # DOM is still captured...
+        dom_html = base64.b64decode(top["renderedContent"]["text"]).decode("utf-8")
+        assert "<h1>Hello</h1>" in dom_html
+        # ...but no screenshot was taken.
+        assert "renderedElements" not in top
+    finally:
+        await _close(client, tab_id)
+
+
+@pytest.mark.asyncio
 async def test_warc_endpoint_rendered_off_by_default(client, fixture_server):
     """No `?rendered=1` → no conversion record."""
     tab_id = await _open(client, f"{fixture_server}/normal_page.html", mode="copy")
