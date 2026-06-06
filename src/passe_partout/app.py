@@ -488,6 +488,7 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
     async def get_warc(
         tab_id: int,
         rendered: bool = False,
+        screenshot: bool = True,
         domsnapshot: bool = False,
         computed_styles: str = "",
         dom_rects: bool = False,
@@ -545,7 +546,10 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 except Exception:
                     page_title = ""
                 rendered_payload, cssom_fallback_payload = await capture_rendered_payload(
-                    rec.tab, page_title=page_title, cssom_max_attempts=cssom_max_attempts
+                    rec.tab,
+                    page_title=page_title,
+                    cssom_max_attempts=cssom_max_attempts,
+                    include_screenshot=screenshot,
                 )
             if domsnapshot and main_doc_request_id is not None:
                 dom_snapshot_payload = await capture_dom_snapshot(

@@ -158,7 +158,10 @@ def _b64(text: str | bytes) -> str:
 
 
 async def capture_rendered_payload(
-    tab: uc.Tab, page_title: str = "", cssom_max_attempts: int | None = None
+    tab: uc.Tab,
+    page_title: str = "",
+    cssom_max_attempts: int | None = None,
+    include_screenshot: bool = True,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Return `(rendered_payload, cssom_fallback)` for the tab.
 
@@ -166,12 +169,16 @@ async def capture_rendered_payload(
     top-level failure. `cssom_fallback` is `{"version", "frames":[...]}` listing
     sheets that could not be folded inline (or None when every frame folded).
 
-    The screenshot is taken up front (its scroll-to-top must not land between a
-    frame's HTML serialization and its CSSOM walk); each frame's `fold_cssom`
-    then serializes the DOM and extracts the CSSOM as an adjacent, consistent
-    pair, retrying on mismatch. `cssom_max_attempts` caps those attempts (`0`
-    forces the fallback dump — see `fold_cssom`). Per-frame failures degrade
-    gracefully — only the top frame is mandatory.
+    When `include_screenshot` is True the screenshot is taken up front (its
+    scroll-to-top must not land between a frame's HTML serialization and its
+    CSSOM walk) and embedded as the top frame's `renderedElements`; a screenshot
+    failure aborts the whole record. When False, no screenshot is captured — and
+    crucially no `window.scrollTo(0, 0)` runs, so the live page's scroll position
+    is left untouched — and the top frame carries DOM only. Each frame's
+    `fold_cssom` then serializes the DOM and extracts the CSSOM as an adjacent,
+    consistent pair, retrying on mismatch. `cssom_max_attempts` caps those
+    attempts (`0` forces the fallback dump — see `fold_cssom`). Per-frame
+    failures degrade gracefully — only the top frame's DOM is mandatory.
     """
     started_at = _iso_now()
     try:
@@ -179,9 +186,11 @@ async def capture_rendered_payload(
     except Exception:
         return None, None
     top_frame_id = tree.frame.id_
-    screenshot_b64 = await _capture_screenshot_b64(tab, top_frame_id)
-    if screenshot_b64 is None:
-        return None, None
+    screenshot_b64: str | None = None
+    if include_screenshot:
+        screenshot_b64 = await _capture_screenshot_b64(tab, top_frame_id)
+        if screenshot_b64 is None:
+            return None, None
 
     pages: list[dict[str, Any]] = []
     fallback_frames: list[dict[str, Any]] = []
@@ -250,7 +259,7 @@ async def capture_rendered_payload(
                 "text": _b64(dom_html),
                 "encoding": "base64",
             }
-        if parent_frame_id is None:
+        if parent_frame_id is None and screenshot_b64 is not None:
             entry["renderedElements"] = [
                 {
                     "selector": ":root",
