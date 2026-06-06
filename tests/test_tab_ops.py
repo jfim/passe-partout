@@ -239,6 +239,37 @@ async def test_play_behavior_scrolls_tab(client, fixture_server):
         await _close(client, tid)
 
 
+async def test_play_behavior_scroll_down_within_viewport_band(client, fixture_server):
+    import asyncio
+
+    tid = await _open(client, f"{fixture_server}/tall.html")
+    try:
+        vh = (
+            await client.post(
+                f"/tabs/{tid}/eval", json={"js": "window.innerHeight", "world": "isolated"}
+            )
+        ).json()["result"]
+
+        r = await client.post(
+            f"/tabs/{tid}/behaviors/play",
+            json={"name": "scroll-down", "perturb": {"enabled": False}},
+        )
+        assert r.status_code == 204
+
+        await asyncio.sleep(0.3)
+        scrolled = (
+            await client.post(
+                f"/tabs/{tid}/eval", json={"js": "window.scrollY", "world": "isolated"}
+            )
+        ).json()["result"]
+
+        # Burst is sized to 50-80% of the viewport (whole 120px notches), not the
+        # old fixed 4800px avalanche. Loose lower bound absorbs compositor/rounding.
+        assert 0.4 * vh <= scrolled <= 0.8 * vh + 120
+    finally:
+        await _close(client, tid)
+
+
 async def test_play_behavior_unknown_tab_404(client):
     r = await client.post("/tabs/999999/behaviors/play", json={"name": "scroll-down"})
     assert r.status_code == 404

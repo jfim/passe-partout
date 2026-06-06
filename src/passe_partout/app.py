@@ -17,7 +17,12 @@ import nodriver as uc
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from passe_partout.behaviors import BehaviorCatalog, perturb_steps, replay_wheel
+from passe_partout.behaviors import (
+    BehaviorCatalog,
+    perturb_steps,
+    replay_wheel,
+    scroll_down_steps,
+)
 from passe_partout.browser_pool import BrowserPool
 from passe_partout.config import Config
 from passe_partout.domsnapshot import DOM_SNAPSHOT_PROFILE, capture_dom_snapshot
@@ -812,14 +817,27 @@ def build_app(cfg: Config, browser_pool: BrowserPool | None = None) -> FastAPI:
                 content={"error": "behavior_not_found", "detail": req.name},
             )
         p = req.perturb or PerturbParams()
-        steps = perturb_steps(
-            behavior.steps,
-            enabled=p.enabled,
-            time_warp=p.time_warp if p.time_warp is not None else 0.15,
-            delta_scale=p.delta_scale if p.delta_scale is not None else 0.10,
-            seed=p.seed,
-        )
         async with rec.lock:
+            base = behavior.steps
+            if behavior.viewport_relative:
+                # Regenerate the burst from the tab's live viewport. Measured in an
+                # isolated world (createIsolatedWorld + Runtime.evaluate on that
+                # context — no Runtime.enable) so a hostile page can't tamper with
+                # the read. Falls back to behavior.steps if the read fails.
+                try:
+                    fid = await main_frame_id(rec.tab)
+                    h = await evaluate_isolated(rec.tab, fid, "window.innerHeight")
+                except Exception:
+                    h = None
+                if isinstance(h, (int, float)) and not isinstance(h, bool) and h > 0:
+                    base = scroll_down_steps(float(h), seed=p.seed)
+            steps = perturb_steps(
+                base,
+                enabled=p.enabled,
+                time_warp=p.time_warp if p.time_warp is not None else 0.15,
+                delta_scale=p.delta_scale if p.delta_scale is not None else 0.10,
+                seed=p.seed,
+            )
             try:
                 await replay_wheel(rec.tab, steps)
             except Exception as e:

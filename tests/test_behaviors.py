@@ -7,9 +7,12 @@ import pytest
 
 from passe_partout.behaviors import (
     BUILTIN_SCROLL_DOWN,
+    SCROLL_DOWN_FRACTION_RANGE,
+    WHEEL_CLICK_PX,
     BehaviorCatalog,
     perturb_steps,
     replay_wheel,
+    scroll_down_steps,
 )
 
 
@@ -21,9 +24,44 @@ def test_builtin_scroll_down_present():
     assert b is not None
     assert b.source == "builtin"
     assert b.kind == "scroll-down"
+    assert b.viewport_relative is True
     assert len(b.steps) > 0
     # built-in scrolls downward (positive delta_y)
     assert all(dy > 0 for _, dy, _ in b.steps)
+
+
+def test_scroll_down_steps_covers_viewport_fraction():
+    lo, hi = SCROLL_DOWN_FRACTION_RANGE
+    vh = 900.0
+    # Across many seeds the total scroll distance should land within the
+    # 50-80% band (allowing half a wheel notch of rounding slack either way).
+    for seed in range(200):
+        steps = scroll_down_steps(vh, seed=seed)
+        assert len(steps) >= 1
+        assert all(dx == 0.0 and dy == WHEEL_CLICK_PX and dt > 0 for dx, dy, dt in steps)
+        total = sum(dy for _, dy, _ in steps)
+        assert lo * vh - WHEEL_CLICK_PX / 2 <= total <= hi * vh + WHEEL_CLICK_PX / 2
+
+
+def test_scroll_down_steps_is_not_a_40_notch_avalanche():
+    # Regression: the old builtin was a fixed 40x120px = 4800px burst.
+    for seed in range(50):
+        assert len(scroll_down_steps(900.0, seed=seed)) < 40
+
+
+def test_scroll_down_steps_deterministic_with_seed():
+    assert scroll_down_steps(1000.0, seed=3) == scroll_down_steps(1000.0, seed=3)
+
+
+def test_scroll_down_steps_click_count_varies():
+    counts = {len(scroll_down_steps(900.0, seed=s)) for s in range(50)}
+    assert len(counts) > 1  # random click count, not a constant
+
+
+def test_scroll_down_steps_scales_with_viewport():
+    small = sum(dy for _, dy, _ in scroll_down_steps(400.0, seed=1))
+    large = sum(dy for _, dy, _ in scroll_down_steps(1600.0, seed=1))
+    assert large > small  # same fraction (same seed) over a bigger viewport scrolls farther
 
 
 def test_load_recorded_trace(tmp_path):

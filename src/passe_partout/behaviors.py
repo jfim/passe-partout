@@ -22,6 +22,12 @@ WheelStep = tuple[float, float, float]
 
 VALID_KINDS = frozenset({"scroll-down", "scroll-up", "jitter", "wheel-scrub"})
 
+# One wheel notch dispatches WHEEL_DELTA (120px) on most platforms.
+WHEEL_CLICK_PX = 120.0
+# The builtin scroll-down covers a random fraction of the viewport in this range.
+SCROLL_DOWN_FRACTION_RANGE = (0.5, 0.8)
+SCROLL_DOWN_STEP_DT_MS = 16.0
+
 
 @dataclass(frozen=True)
 class Behavior:
@@ -29,15 +35,41 @@ class Behavior:
     kind: str  # one of VALID_KINDS
     source: str  # "builtin" | "recorded"
     steps: tuple[WheelStep, ...]
+    # When True, `steps` is a static fallback; the play endpoint regenerates the
+    # burst from the tab's live viewport height (see scroll_down_steps).
+    viewport_relative: bool = False
 
 
-# Honestly-synthetic default: evenly-spaced downward wheel, enough to trip
-# IntersectionObserver lazy-load. Makes no claim to be human.
+def scroll_down_steps(
+    viewport_height: float,
+    *,
+    fraction_range: tuple[float, float] = SCROLL_DOWN_FRACTION_RANGE,
+    click_px: float = WHEEL_CLICK_PX,
+    dt_ms: float = SCROLL_DOWN_STEP_DT_MS,
+    seed: int | None = None,
+) -> tuple[WheelStep, ...]:
+    """Generate an evenly-spaced downward wheel burst covering a random fraction
+    (default 50-80%) of `viewport_height`, rounded to a whole number of ~120px
+    wheel notches (at least one). Honestly-synthetic — makes no claim to be human,
+    but sized like a single flick of the wheel rather than a 40-notch avalanche.
+    Deterministic for a fixed `seed`."""
+    rng = random.Random(seed)
+    lo, hi = fraction_range
+    target = max(0.0, viewport_height) * rng.uniform(lo, hi)
+    n = max(1, round(target / click_px))
+    return tuple((0.0, click_px, dt_ms) for _ in range(n))
+
+
+# Honestly-synthetic default: a downward wheel flick of 50-80% of the viewport,
+# regenerated per replay from the tab's live innerHeight (see scroll_down_steps).
+# The static `steps` here is a representative fallback (~65% of a 900px viewport)
+# used only if the live viewport read fails. Makes no claim to be human.
 BUILTIN_SCROLL_DOWN = Behavior(
     name="scroll-down",
     kind="scroll-down",
     source="builtin",
-    steps=tuple((0.0, 120.0, 16.0) for _ in range(40)),
+    steps=scroll_down_steps(900.0, seed=0),
+    viewport_relative=True,
 )
 
 
